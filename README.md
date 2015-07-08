@@ -1,6 +1,6 @@
 # net
 
-Super lightweight "network manager".
+Super lightweight network manager.
 
 ## Usage
 
