@@ -143,10 +143,10 @@ def get_ifaces_up():
     return get_ifaces(True)
 
 def is_wifi_iface(iface):
-    return run('iwconfig %s' % iface) != None
+    return run('iw dev %s info' % iface) != None
 
 def get_wifi_ifaces():
-    return filter(is_wifi_iface, get_ifaces())
+    return run_or_die("iw dev | awk '/^[ \t]*Interface / {print $2}'").strip().split('\n')
 
 def get_wifi_iface_up():
     for iface in get_ifaces_up():
@@ -312,6 +312,14 @@ def read_config(reraise = False):
                 val = parse_wpa_conf(val)
             if key not in known_keys:
                 die('Unknown key: %s' % key)
+            if isinstance(val, unicode):
+                # The yaml decoder will convert
+                # non-ascii strings into unicode
+                # This is not what we want. We want
+                # e.g. '\xc3' in the yaml file to become b'\xc3',
+                # not u'\xc3'.
+                # This is an ugly hack to fix it.
+                val = val.encode('iso-8859-1')
             conn[key] = val
         if name == 'common':
             COMMON = conn
@@ -338,6 +346,58 @@ def do_list():
         for c, i in c2if.items():
             print '%s: "%s", %s' % (i, c, get_addr4(i))
 
+def unescape_c_str(data):
+    return re.sub(
+        r'\\x([0-9a-f]{2})',
+        lambda x: x.group(1).decode('hex'),
+        data
+    )
+
+def escape_c_str(data):
+    return re.sub(
+        r'[^a-zA-Z1-9!#$%&()*+,./:;<=>?@\[\]^_`{|}~ -]|(\s*$)|(^\s*)',
+        lambda x: ''.join(r'\x%02x' % ord(c) for c in x.group(0)),
+        data
+    )
+
+def parse_iw_scan_tree(iface):
+    while True:
+        data = run_or_die('iw dev %s scan | expand' % iface).strip('\n')
+        if data:
+            break
+        else:
+            print "Scan failed, re-running"
+            time.sleep(0.5)
+    parents = [(-1, {})]
+    last = None
+
+    def popold(curindent):
+        obj = None
+        while parents and curindent <= parents[-1][0]:
+            _, obj = parents.pop()
+            for key, val in obj.items():
+                if isinstance(val, dict) and val.keys() == [None]:
+                    obj[key] = val[None]
+        return obj
+
+    for line in data.split('\n'):
+        curindent = len(line) - len(line.lstrip(' '))
+        popold(curindent)
+
+        line = line.lstrip(' ')
+        if line.startswith('* '):
+            line = line[2:].lstrip(' ')
+
+        if ': ' in line:
+            key, value = line.split(': ', 1)
+            obj = {None: value.lstrip(' ')}
+        else:
+            key = line
+            obj = {}
+        parents[-1][1][key] = obj
+        parents.append((curindent, obj))
+    return popold(-1)
+
 def do_scan():
     become_root()
     iface = IFACE or get_wifi_iface_up() or get_default_wifi_iface()
@@ -345,14 +405,25 @@ def do_scan():
     # Make sure iface is up
     run_or_die('ifconfig %s up' % iface)
 
-    output = run_or_die('iwlist %s scan' % iface)
-    ssids = re.findall(r'SSID:"([^"]+)"', output)
-    crypto = re.findall(r'Encryption key:(on|off)', output)
-    quality = re.findall(r'Quality=(\d+)/(\d+)', output)
     aps = {}
-    for ssid, crypto, (qe, qd) in zip(ssids, crypto, quality):
-        quality = float(qe)/float(qd)
-        crypto = True if crypto == 'on' else False
+    signal_re = re.compile('^([0-9.-]*) dBm$')
+
+    for ap in parse_iw_scan_tree(iface).values():
+        ok = True
+        for key in ['SSID', 'signal']:
+            if key not in ap or ap[key] == '':
+                ok = False
+
+        ap['SSID'] = unescape_c_str(ap['SSID'])
+        ssid = escape_c_str(ap['SSID'])
+        quality = float(signal_re.match(ap['signal']).group(1))
+        crypto = ap.get('RSN', ap.get('WPA', ''))
+        if crypto:
+            crypto = crypto.get('Authentication suites', 'UNKNOWN')
+
+        if ap['SSID'] == '':
+            continue
+
         if ssid in aps:
             aps[ssid][1] = max(aps[ssid][1], quality)
         else:
@@ -364,9 +435,9 @@ def do_scan():
         json.dump(aps.keys(), fd)
     ssid_align = max(map(len, aps.keys()))
     for ssid, (crypto, quality) in sorted(aps.items()):
-        print '%s %3d%% %s' % (ssid.ljust(ssid_align),
-                              quality * 100,
-                              '*' if crypto else ''
+        print '%s %d dBm %s' % (ssid.ljust(ssid_align),
+                              quality,
+                              crypto
                               )
 
 def start_dhcp_cmd(iface, hostname = None):
@@ -487,7 +558,7 @@ def do_connect(conn, psk = None):
     become_root()
     read_config()
     if conn not in CONFIG:
-        ssid = conn
+        ssid = unescape_c_str(conn)
         def get(key, default = None):
             return COMMON.get(key, default)
     else:
