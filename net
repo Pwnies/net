@@ -1,0 +1,745 @@
+#!/usr/bin/env python2.7
+import os, sys, time, subprocess, re, random, yaml, json
+
+# Based on https://git.pwnies.dk/IdolfHatler/vcsh-wifi
+
+DEFAULT_CONFIG_FILE = '~/.net.conf'
+
+CONFIG_FILE = None
+CONFIG      = None
+COMMON      = None
+IFACE       = None
+VERBOSE     = False
+
+def die(s = '', exitcode = 1):
+    if s:
+        print s
+    sys.exit(exitcode)
+
+def usage():
+    print '''usage: net [<command>] [<args>] [--config=<config>] [--iface=<interface>]
+           [--verbose] [-h] [--help]
+
+Shorthands:
+  If no positional arguments are given the command is "list".
+  If one positional argument is given the command is "connect".
+
+Commands:
+  list:
+    List available connections.
+  scan:
+    Scan for access points.
+  connect <connection> [<password>]:
+    If <connection> is present in the configuration file then use that,
+    otherwise connect to an access point with SSID <connection>, using the
+    password <password> if specified.
+  stop [<interface> [<interface> ...]]:
+    Bring down the connection.  Brings down all interfaces if called with no
+    arguments.
+  dns [<dns> [<dns> ...]]:
+    Change DNS server.  No argument or "dhcp" requests DNS servers via DHCP.
+  mac [<mac>]:
+    Change the MAC address of the interface specified by --iface.  If no address
+    is given, one is chosen at random.
+  help:
+    You're reading it.
+
+Options:
+  --config=<config>:
+    Select configurations file.  If <config> is "-" no configuration file is
+    used.  Defaults to "~/.net.conf".
+  --iface=<interface>:
+    Select networking interface.  Overridden by configuration file if specified.
+    Defaults to first WiFi capable interface found.
+  --verbose:
+    Print every executed command (and the result) to stdout.'''
+    die()
+
+ANSI_ESC = '\x1b[%dm'
+ANSI_RESET = ANSI_ESC % 0
+def ansi(s, esc):
+    s = esc + s
+    if not s.endswith(ANSI_RESET):
+        s += ANSI_RESET
+    return s
+
+def red(s):
+    return ansi(s, ANSI_ESC % 31)
+
+def green(s):
+    return ansi(s, ANSI_ESC % 32)
+
+def yesno (s, default):
+    optlist = green('Y') + '/n' if default else 'y/' + green('N')
+    prompt = '%s [%s]: ' % (s, optlist)
+    while True:
+        opt = raw_input(prompt).lower()
+        if opt == '':
+            return default
+        if opt in ('yes', 'y'):
+            return True
+        if opt in ('no', 'n'):
+            return False
+        print 'Please answer yes or no'
+
+def run(cmd, exit_on_error = False):
+    if VERBOSE:
+        print '+', cmd
+    p = subprocess.Popen(cmd,
+                         stdin  = file('/dev/null'),
+                         stdout = subprocess.PIPE,
+                         stderr = subprocess.PIPE,
+                         shell = True,
+                         )
+    o, e = p.communicate()
+    if p.poll() != 0:
+        if exit_on_error or VERBOSE:
+            print 'Failed: %s' % cmd
+        if exit_on_error:
+            die(e)
+        else:
+            return None
+    if VERBOSE:
+        if o:
+            print o.rstrip()
+        if e:
+            print red(e.strip())
+    return o
+
+def run_or_die(cmd):
+    return run(cmd, exit_on_error = True)
+
+def rm(*paths):
+    for p in paths:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+def expand(path):
+    if path.startswith('~/'):
+        user = os.environ.get('SUDO_USER', '')
+        path = '~%s/%s' % (user, path[2:])
+    return os.path.expanduser(path)
+
+def become_root():
+    if os.getuid() != 0:
+        os.execlp('sudo', 'sudo', 'python', *sys.argv)
+
+def get_ifaces(only_up = False):
+    ifaces = []
+    for iface, parms in re.findall(r'^\d+: (\S+): <([^>]*)>',
+                                   run_or_die('ip link show'),
+                                   re.MULTILINE):
+        parms = parms.split(',')
+        if 'LOOPBACK' in parms:
+            continue
+        if only_up and 'UP' not in parms:
+            continue
+        ifaces.append(iface)
+    return ifaces
+
+def get_ifaces_up():
+    return get_ifaces(True)
+
+def is_wifi_iface(iface):
+    return run('iwconfig %s' % iface) != None
+
+def get_wifi_ifaces():
+    return filter(is_wifi_iface, get_ifaces())
+
+def get_wifi_iface_up():
+    for iface in get_ifaces_up():
+        if is_wifi_iface(iface):
+            return iface
+
+def get_default_wifi_iface():
+    ifaces = get_wifi_ifaces()
+    if ifaces:
+        iface = ifaces[0]
+        if len(ifaces) > 1:
+            print 'Using interface "%s"' % iface
+        return iface
+    die('Could not find any WiFi interfaces')
+
+def get_default_wired_iface():
+    # This is an ugly hack, but is there any better way?  We get the
+    # non-wireless, non-loopback interfaces and select the first one. Hopefully
+    # that is good enough.
+    ifaces = [iface for iface in get_ifaces() if not is_wifi_iface(iface)]
+    if ifaces:
+        iface = ifaces[0]
+        if len(ifaces) > 1:
+            print 'Using interface "%s"' % iface
+        return iface
+    die('Could not find any wired interfaces')
+
+def get_addrs4(iface):
+    output = run_or_die('ip addr show %s' % iface)
+    return re.findall(r'inet (\d+\.\d+\.\d+\.\d+)', output)
+
+def get_addr4(iface):
+    addrs = get_addrs4(iface)
+    if addrs:
+        return addrs[0]
+    return 'no address'
+
+def parse_args():
+    optional = {}
+    args = sys.argv[1:][::]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith('--'):
+            if '=' in arg:
+                key, val = arg.split('=', 1)
+            else:
+                key = arg
+                val = True
+            optional[key] = val
+            args.pop(i)
+        elif arg.startswith('-'):
+            for key in arg[1:]:
+                optional['-' + key] = True
+            args.pop(i)
+        else:
+            i += 1
+
+    if '-h' in optional or '--help' in optional or (args and args[0] == 'help'):
+        usage()
+    if '--internal-list-up' in optional:
+        die(' '.join(get_ifaces_up()), 0)
+    if '--internal-scan-cache' in optional:
+        try:
+            die(' '.join(json.load(open('/tmp/.net-scan'))))
+        except:
+            die('')
+
+    global CONFIG_FILE, IFACE, VERBOSE
+    CONFIG_FILE = optional.pop('--config', DEFAULT_CONFIG_FILE)
+    if CONFIG_FILE == '-':
+        CONFIG_FILE = None
+    IFACE  = optional.pop('--iface', None)
+    VERBOSE = optional.pop('--verbose', False)
+
+    if '--internal-list-all' in optional:
+        try:
+            read_config(reraise = True)
+            die(' '.join(CONFIG.keys()), 0)
+        except:
+            die('')
+
+    if optional:
+        die('Unknown argument: %s' % optional.keys()[0])
+
+    if len(args) == 0:
+        return 'list', []
+
+    if args[0] in ('list', 'scan', 'connect', 'mac', 'dns', 'stop'):
+        cmd = args.pop(0)
+    else:
+        cmd = 'connect'
+
+    return cmd, args
+
+def parse_wpa_conf(raw_conf):
+    stack = []
+    obj = {}
+    for line in raw_conf.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if line == '}':
+            try:
+                obj = stack.pop()
+            except IndexError:
+                die('Unmatched }')
+            continue
+        if '=' not in line:
+            die('Expected = in line: %s' % line)
+        key, val = line.split('=', 1)
+        key = key.strip()
+        val = val.strip()
+        if val == '{':
+            child = {}
+            obj[key] = child
+            stack.append(obj)
+            obj = child
+        else:
+            obj[key] = val
+    if len(stack) > 0:
+        die('Unmatched {')
+    return obj
+
+def write_wpa_conf(conf):
+    def loop(obj):
+        out = []
+        for k, v in obj.items():
+            if isinstance(v, str):
+                out.append('%s=%s' % (k, v))
+            else:
+                out.append('%s={' % k)
+                out += ['  ' + line for line in loop(v)]
+                out.append('}')
+        return out
+    return '\n'.join(loop(conf)) + '\n'
+
+def read_config(reraise = False):
+    global CONFIG, COMMON
+    if CONFIG is not None:
+        return
+    CONFIG = {}
+    COMMON = {}
+    if CONFIG_FILE is None:
+        return
+    try:
+        with open(expand(CONFIG_FILE)) as fd:
+            raw_config = yaml.load(fd)
+    except Exception as e:
+        if reraise:
+            raise
+        die(e)
+    if raw_config is None:
+        if reraise:
+            raise
+        die('Empty configuration')
+    known_keys = ('ssid', 'psk', 'mac', 'dns', 'wpa', 'hostname', 'interface',
+                  'addr', 'gateway')
+    for name, raw_conn in raw_config.items():
+        conn = {}
+        for key, val in raw_conn.items():
+            if key == 'wpa':
+                val = parse_wpa_conf(val)
+            if key not in known_keys:
+                die('Unknown key: %s' % key)
+            conn[key] = val
+        if name == 'common':
+            COMMON = conn
+        else:
+            CONFIG[name] = conn
+
+def do_list():
+    read_config()
+    connections = CONFIG.keys()
+    if2c = read_connections()
+    c2if = {}
+    for iface, conn in if2c.items():
+        c2if[conn] = iface
+    width = max(len(c) for c in connections)
+    for conn in sorted(connections):
+        if conn in c2if:
+            iface = c2if[conn]
+            print '%s (%s: %s)' % (conn.ljust(width), iface, get_addr4(iface))
+            del c2if[conn]
+        else:
+            print conn
+    if c2if:
+        print
+        for c, i in c2if.items():
+            print '%s: "%s", %s' % (i, c, get_addr4(i))
+
+def do_scan():
+    become_root()
+    iface = IFACE or get_wifi_iface_up() or get_default_wifi_iface()
+
+    # Make sure iface is up
+    run_or_die('ifconfig %s up' % iface)
+
+    output = run_or_die('iwlist %s scan' % iface)
+    ssids = re.findall(r'SSID:"([^"]+)"', output)
+    crypto = re.findall(r'Encryption key:(on|off)', output)
+    quality = re.findall(r'Quality=(\d+)/(\d+)', output)
+    aps = {}
+    for ssid, crypto, (qe, qd) in zip(ssids, crypto, quality):
+        quality = float(qe)/float(qd)
+        crypto = True if crypto == 'on' else False
+        if ssid in aps:
+            aps[ssid][1] = max(aps[ssid][1], quality)
+        else:
+            aps[ssid] = [crypto, quality]
+    if len(aps) == 0:
+        print 'Found no access points'
+        return
+    with open('/tmp/.net-scan', 'w') as fd:
+        json.dump(aps.keys(), fd)
+    ssid_align = max(map(len, aps.keys()))
+    for ssid, (crypto, quality) in sorted(aps.items()):
+        print '%s %3d%% %s' % (ssid.ljust(ssid_align),
+                              quality * 100,
+                              '*' if crypto else ''
+                              )
+
+def start_dhcp_cmd(iface, hostname = None):
+    cmd = 'udhcpc -R -i %s' % iface
+    if hostname:
+        cmd += ' -x hostname:%s' % hostname
+    return cmd
+
+def start_dhcp(iface, hostname = None):
+    run_or_die(start_dhcp_cmd(iface, hostname))
+
+def stop_dhcp_cmd(iface):
+    pattern = start_dhcp_cmd(iface)
+    return 'pkill -f "%s"' % pattern
+
+def stop_dhcp(iface):
+    run(stop_dhcp_cmd(iface))
+
+def renew_dhcp_cmd():
+    # It would be nice only notify the "right one". But what *is* the right one?
+    # We only call this function in `do_dns', and this function is not aware of
+    # which interface we are talking about. So: We renew them all and accept the
+    # race condition.
+    return 'pkill -SIGUSR1 udhcpc'
+
+def renew_dhcp():
+    run(renew_dhcp_cmd())
+
+def finalize_hostname(hostname):
+    names = ('Jonas', 'Noah', 'Liam', 'Jacob', 'Mason', 'William', 'Ethan',
+             'Michael', 'Alexander', 'Jayden', 'Daniel', 'Elijah', 'Aiden',
+             'James', 'Benjamin', 'Matthew', 'Jackson', 'Logan', 'David',
+             'Anthony', 'Joseph', 'Joshua', 'Andrew', 'Lucas', 'Gabriel',
+             'Samuel', 'Christopher', 'John', 'Dylan', 'Isaac', 'Ryan',
+             'Nathan', 'Carter', 'Caleb', 'Luke', 'Christian', 'Hunter',
+             'Henry', 'Owen', 'Landon', 'Jack', 'Wyatt', 'Jonathan', 'Eli',
+             'Isaiah', 'Sebastian', 'Jaxon', 'Julian', 'Brayden', 'Gavin',
+             'Levi', 'Aaron', 'Oliver', 'Jordan', 'Nicholas', 'Evan', 'Connor',
+             'Charles', 'Jeremiah', 'Cameron', 'Adrian', 'Thomas', 'Robert',
+             'Tyler', 'Colton', 'Austin', 'Jace', 'Angel', 'Dominic', 'Josiah',
+             'Brandon', 'Ayden', 'Kevin', 'Zachary', 'Parker', 'Blake', 'Jose',
+             'Chase', 'Grayson', 'Jason', 'Ian', 'Bentley', 'Adam', 'Xavier',
+             'Cooper', 'Justin', 'Nolan', 'Hudson', 'Easton', 'Jase', 'Carson',
+             'Nathaniel', 'Jaxson', 'Kayden', 'Brody', 'Lincoln', 'Luis',
+             'Tristan', 'Damian', 'Camden', 'Juan', 'Sophia', 'Emma', 'Olivia',
+             'Isabella', 'Ava', 'Mia', 'Emily', 'Abigail', 'Madison',
+             'Elizabeth', 'Charlotte', 'Avery', 'Sofia', 'Chloe', 'Ella',
+             'Harper', 'Amelia', 'Aubrey', 'Addison', 'Evelyn', 'Natalie',
+             'Grace', 'Hannah', 'Zoey', 'Victoria', 'Lillian', 'Lily',
+             'Brooklyn', 'Samantha', 'Layla', 'Zoe', 'Audrey', 'Leah',
+             'Allison', 'Anna', 'Aaliyah', 'Savannah', 'Gabriella', 'Camila',
+             'Aria', 'Kaylee', 'Scarlett', 'Hailey', 'Arianna', 'Riley',
+             'Alexis', 'Nevaeh', 'Sarah', 'Claire', 'Sadie', 'Peyton', 'Aubree',
+             'Serenity', 'Ariana', 'Genesis', 'Penelope', 'Alyssa', 'Bella',
+             'Taylor', 'Alexa', 'Kylie', 'Mackenzie', 'Caroline', 'Kennedy',
+             'Autumn', 'Lucy', 'Ashley', 'Madelyn', 'Violet', 'Stella',
+             'Brianna', 'Maya', 'Skylar', 'Ellie', 'Julia', 'Sophie',
+             'Katherine', 'Mila', 'Khloe', 'Paisley', 'Annabelle', 'Alexandra',
+             'Nora', 'Melanie', 'London', 'Gianna', 'Naomi', 'Eva', 'Faith',
+             'Madeline', 'Lauren', 'Nicole', 'Ruby', 'Makayla', 'Kayla',
+             'Lydia', 'Piper', 'Sydney', 'Jocelyn', 'Morgan')
+    while '<name>' in hostname:
+        hostname = hostname.replace('<name>', random.choice(names), 1)
+    return hostname
+
+def stop_wpa(iface):
+    for pattern in ('wpa_supplicant .* -i *%s' % iface,
+                    'wpa_cli .* -i *%s' % iface):
+        run('pkill -f "%s"' % pattern)
+
+def stop(iface):
+    if is_wifi_iface(iface):
+        stop_wpa(iface)
+        rm('/var/run/wpa_supplicant/%s' % iface,
+           '/tmp/wpa_cli.%s.sh' % iface,
+           '/tmp/wpa_cli.%s.log' % iface)
+
+    stop_dhcp(iface)
+    run("ip addr flush dev %s" % iface)
+    run_or_die("ifconfig %s down" % iface)
+    del_connection(iface)
+
+def set_dns(dns):
+    become_root()
+    run('chattr -i /etc/resolv.conf')
+    if dns:
+        if isinstance(dns, (str, unicode)):
+            dns = [dns]
+        with open('/etc/resolv.conf', 'w') as fd:
+            for server in dns:
+                fd.write('nameserver %s\n' % server)
+        run('chattr +i /etc/resolv.conf')
+
+connections_path = '/tmp/.net-connections'
+def read_connections():
+    try:
+        with open(connections_path, 'r') as fd:
+            return json.load(fd)
+    except:
+        return {}
+
+def write_connections(cs):
+    with open(connections_path, 'w') as fd:
+        json.dump(cs, fd)
+
+def add_connection(iface, conn):
+    conns = read_connections()
+    conns[iface] = conn
+    write_connections(conns)
+
+def del_connection(iface):
+    conns = read_connections()
+    if iface in conns:
+        del conns[iface]
+    write_connections(conns)
+
+def do_connect(conn, psk = None):
+    become_root()
+    read_config()
+    if conn not in CONFIG:
+        ssid = conn
+        def get(key, default = None):
+            return COMMON.get(key, default)
+    else:
+        ssid = CONFIG[conn].get('ssid', None)
+        def get(key, default = None):
+            return CONFIG[conn].get(key, COMMON.get(key, default))
+
+    psk      = get('psk', psk)
+    dns      = get('dns')
+    mac      = get('mac')
+    wpa      = get('wpa')
+    hostname = get('hostname')
+    addr     = get('addr')
+    gateway  = get('gateway')
+    iface    = get('interface', IFACE)
+    if not iface:
+        if psk or ssid or wpa:
+            iface = get_default_wifi_iface()
+        else:
+            iface = get_default_wired_iface()
+
+    # Evaluate configuration
+    if psk and wpa:
+        die('Both psk and wpa is set')
+
+    if psk:
+        wpa = {'network': {'key_mgmt' : 'WPA-PSK',
+                           'psk'      : '"%s"' % psk}
+               }
+
+    if dns == 'dhcp':
+        dns = None
+
+    if dns:
+        dns = [dns.strip() for dns in dns.split(',')]
+
+    if mac == 'default':
+        mac = None
+
+    if hostname:
+        hostname = finalize_hostname(hostname)
+
+    if wpa:
+        if 'network' not in wpa:
+            die('No network section in wpa_supplicant')
+        wpa_ssid = wpa['network'].get('ssid', '').strip('"')
+        if wpa_ssid and ssid and wpa_ssid != ssid:
+            die('SSID mismatch')
+        if not ssid:
+            if wpa_ssid:
+                ssid = wpa_ssid
+            else:
+                ssid = conn
+
+        wpa['network']['ssid'] = ssid.encode('hex')
+        wpa['network'].setdefault('scan_ssid', '0')
+        wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
+        wpa['ctrl_interface_group'] = '0'
+        wpa_conf = '/tmp/wpa_supplicant.%s.conf' % iface
+        with open(wpa_conf, 'w') as fd:
+            os.fchown(fd.fileno(), 0, 0)
+            os.fchmod(fd.fileno(), 0o700)
+            fd.write(write_wpa_conf(wpa))
+
+    if addr:
+        try:
+            ip, netmask = re.findall(r'(\d+\.\d+\.\d+\.\d+)(/\d+)?', addr)[0]
+        except:
+            die('Invalid address: %s' % addr)
+        if not netmask:
+            print '(Guessed netmask: 255.255.255.0)'
+            netmask = '/24'
+        if not gateway:
+            gateway = ip.rsplit('.', 1)[0] + '.1'
+            print '(Guessed gateway: %s)' % gateway
+        network = [
+            'ip addr add %s%s dev %s' % (ip, netmask, iface),
+            'ip route add default via %s dev %s' % (gateway, iface),
+            'ip link set %s up' % iface,
+            ]
+    else:
+        network = [start_dhcp_cmd(iface, hostname)]
+
+    # Run configuration
+    stop(iface)
+
+    set_mac(iface, mac)
+    set_dns(dns)
+
+    if not wpa:
+        if is_wifi_iface(iface):
+            print 'Connecting'
+            escaped_ssid = ''.join("\\x%02x" % ord(c) for c in ssid)
+            run('iwconfig %s key open essid -- "%s"' % (iface, escaped_ssid))
+        print 'Sending DHCP request'
+        for cmd in network:
+            run_or_die(cmd)
+    else:
+        wpa_cli_sh  = '/tmp/wpa_cli.%s.sh' % iface
+        wpa_cli_log = '/tmp/wpa_cli.%s.log' % iface
+        beg_marker = '[[[BEG]]]'
+        end_marker = '[[[END]]]'
+        with open(wpa_cli_sh, 'w') as fd:
+            os.fchown(fd.fileno(), 0, 0)
+            os.fchmod(fd.fileno(), 0o700)
+            fd.write('''
+#!/bin/sh
+
+LOGFILE=%s
+exec 1>$LOGFILE 2>&1
+chmod og-rwx $LOGFILE
+
+IFNAME=$1
+CMD=$2
+
+if [ "$CMD" != "CONNECTED" ]; then
+    exit 0
+fi
+
+echo %s
+
+%s
+%s
+
+echo %s
+'''.lstrip() % (wpa_cli_log,
+                beg_marker,
+                stop_dhcp_cmd(iface),
+                '\n'.join(network),
+                end_marker))
+
+        print 'Connecting'
+        run_or_die('wpa_supplicant -B -i %s -c %s' % (iface, wpa_conf))
+        run_or_die('wpa_cli -B -i %s -a %s' % (iface, wpa_cli_sh))
+
+        # Wait for wpa_cli
+        while True:
+            try:
+                fd = open(wpa_cli_log)
+                break
+            except IOError:
+                time.sleep(0.1)
+
+        line = ''
+        while True:
+            s = fd.readline()
+            line += s
+            if not s or s[-1] != '\n':
+                time.sleep(0.05)
+                continue
+            line = line.rstrip()
+            if line == beg_marker:
+                print 'Sending DHCP request'
+                if VERBOSE:
+                    print '\n'.join('+ %s' % cmd for cmd in network)
+            elif line == end_marker:
+                break
+            elif VERBOSE:
+                print line
+            line = ''
+
+    add_connection(iface, conn)
+    print 'DONE (addr: %s)' % get_addr4(iface)
+
+def parse_mac(mac_arg):
+    # Borrowed from SpoofMAC
+    mac_re = r'[:-\\.]?'.join(['([0-9A-F\\?]{1,2})'] * 6)
+    cisco_mac_re = r'\\.'.join(['([0-9A-F\\?]{,4})'] * 3)
+    mac = mac_arg.upper()
+    m = re.match(cisco_mac_re, mac)
+    def fmt(grps):
+        grps = ''.join(grps)
+        return ':'.join(grps[i:i+2] for i in range(0, 12, 2))
+    if m:
+        return fmt(g.zfill(4) for g in m.groups())
+    m = re.match(mac_re, mac)
+    if m:
+        return fmt(g.zfill(2) for g in m.groups())
+    die('Invalid MAC address: %s' % mac_arg)
+
+def finalize_mac(mac):
+    if mac and mac != 'random':
+        mac = parse_mac(mac)
+    else:
+        # Inside one of the Macbook Pro wifi ranges
+        mac = '80:e6:50:??:??:??'
+    while '?' in mac:
+        mac = mac.replace('?', random.choice('0123456789abcdef'), 1)
+    return mac
+
+def set_mac(iface, mac):
+    mac = finalize_mac(mac)
+    become_root()
+    run_or_die('ifconfig %s down hw ether %s' % (iface, mac))
+    run_or_die('ifconfig %s up' % iface)
+
+def do_mac(mac = None):
+    if not IFACE:
+        die('You must specify an interface with --iface=<interface>')
+
+    set_mac(IFACE, mac)
+
+def do_dns(*dns):
+    set_dns(dns)
+    if not dns:
+        renew_dhcp()
+
+def do_stop(*args):
+    read_config()
+    if IFACE and args:
+        die('Cannot use --iface')
+    if IFACE:
+        ifaces = [IFACE]
+    else:
+        ifaces = args or get_ifaces_up()
+
+    if not ifaces:
+        die('No interfaces are up')
+
+    become_root()
+    if len(ifaces) > 1:
+        for iface in ifaces:
+            if yesno('Stop %s?' % iface, True):
+                stop(iface)
+    else:
+        stop(ifaces[0])
+
+def main():
+    cmd, args = parse_args()
+    if   cmd == 'list':
+        if len(args) > 0:
+            die('Command "list" takes no arguments')
+        do_list()
+    elif cmd == 'scan':
+        if len(args) > 0:
+            die('Command "scan" takes no arguments')
+        do_scan()
+    elif cmd == 'connect':
+        if len(args) not in (1, 2):
+            die('Command "connect" takes one or two arguments')
+        do_connect(*args)
+    elif cmd == 'mac':
+        if len(args) > 1:
+            die('Command "mac" takes one or no arguments')
+        do_mac(*args)
+    elif cmd == 'dns':
+        do_dns(*args)
+    elif cmd == 'stop':
+        do_stop(*args)
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

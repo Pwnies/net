@@ -1,0 +1,47 @@
+# cache list of connections
+_net_connections="$(net list)"
+
+_net()
+{
+    COMPREPLY=()
+    local cur prev opts word code
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    opts="--help --iface= --config= --verbose"
+    _net_connections+="$(net --internal-scan-cache)"
+
+    # the first argument is a command
+    if [ $COMP_CWORD == 1 ] ; then
+        opts="list scan connect stop dns mac dns ${opts}"
+    fi
+
+    if [ "${prev}" == "connect" ] ; then
+        COMPREPLY=( $(compgen -W "${_net_connections}" -- ${cur}) )
+        return 0
+    fi
+
+    if [ "${prev}" == "stop" ] ; then
+        COMPREPLY=( $(compgen -W "$(net --internal-list-up)" -- ${cur}) )
+        return 0
+    fi
+
+    if [ "${prev}" == "mac" ] || [ "${prev}" == "dns" ] ; then
+        return 1
+    fi
+
+    # check if a connection was already chosen
+    for word in "${COMP_WORDS[@]}" ; do
+        for conn in ${_net_connections} ; do
+            if [ "${word}" == "${conn}" ] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+                return 0
+            fi
+        done
+    done
+
+    opts="${_net_connections} ${opts}"
+    COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+
+}
+
+complete -F _net net

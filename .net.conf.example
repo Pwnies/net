@@ -1,0 +1,31 @@
+common:
+  mac: 00:??:??:??:??:??
+  dns: 8.8.8.8, 8.8.4.4
+  hostname: <name>s-MacBook-Pro
+
+wired:
+  dns: dhcp
+  mac: default
+  hostname:
+
+static:
+  interface: eth0
+  addr: 192.168.0.42/24
+  gateway: 192.168.0.1
+
+eduroam:
+  ssid: eduroam
+  wpa: |
+    network={
+      identity="YOUR-ID-HERE@alumni.ku.dk"
+      password="YOUR-PASSPHRASE-HERE"
+      anonymous_identity="anonymous@di.ku.dk"
+      key_mgmt=WPA-EAP
+      pairwise=TKIP
+      eap=TTLS
+      phase2="auth=PAP"
+    }
+
+my-home-network:
+  ssid: SSID-HERE
+  psk: PASSPHRASE-HERE
