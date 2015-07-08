@@ -124,3 +124,8 @@ to `~/.bash_completion`.
 `net` depends on `udhcpc` (part of [BusyBox](http://www.busybox.net/)),
 [`wpa_supplicant`](http://w1.fi/wpa_supplicant/) and probably other things as
 well (YMMV).
+
+## Contributers
+
+This script was developed by [myself](https://github.com/br0ns) and
+[Idolf](https://github.com/idolf).
