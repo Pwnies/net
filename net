@@ -10,6 +10,7 @@ CONFIG      = None
 COMMON      = None
 IFACE       = None
 VERBOSE     = False
+IGNORED_IFACES = set([])
 
 def die(s = '', exitcode = 1):
     if s:
@@ -136,7 +137,8 @@ def get_ifaces(only_up = False):
             continue
         if only_up and 'UP' not in parms:
             continue
-        ifaces.append(iface)
+        if iface not in IGNORED_IFACES:
+            ifaces.append(iface)
     return ifaces
 
 def get_ifaces_up():
@@ -146,7 +148,9 @@ def is_wifi_iface(iface):
     return run('iw dev %s info' % iface) != None
 
 def get_wifi_ifaces():
-    return run_or_die("iw dev | awk '/^[ \t]*Interface / {print $2}'").strip().split('\n')
+    return [iface for iface in
+            run_or_die("iw dev | awk '/^[ \t]*Interface / {print $2}'").strip().split('\n')
+            if iface not in IGNORED_IFACES]
 
 def get_wifi_iface_up():
     for iface in get_ifaces_up():
@@ -285,7 +289,7 @@ def write_wpa_conf(conf):
     return '\n'.join(loop(conf)) + '\n'
 
 def read_config(reraise = False):
-    global CONFIG, COMMON
+    global CONFIG, COMMON, IGNORED_IFACES
     if CONFIG is not None:
         return
     CONFIG = {}
@@ -305,6 +309,7 @@ def read_config(reraise = False):
         die('Empty configuration')
     known_keys = ('ssid', 'psk', 'mac', 'dns', 'wpa', 'hostname', 'interface',
                   'addr', 'gateway')
+    IGNORED_IFACES = set(raw_config.pop('ignore_interfaces', []))
     for name, raw_conn in raw_config.items():
         conn = {}
         for key, val in raw_conn.items():

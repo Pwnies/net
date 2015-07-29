@@ -66,6 +66,13 @@ common:
   dns: 8.8.8.8, 8.8.4.4
   hostname: <name>s-MacBook-Pro
 
+ignore_interfaces:
+- docker0
+- br0
+- vboxnet0
+- tap0
+- tun0
+
 wired:
   dns: dhcp
   mac: default
@@ -104,6 +111,9 @@ Notice that the section `common` does not define a network but rather settings
 common to *all* network configurations (in this case using Google's DNS servers
 and randomizing the MAC address and hostname [`<name>` will be replaced by an
 actual name]).
+
+The `ignore_interface` section does not define a network either, and instead
+contains a list of interfaces to be ignored by e.g. `net stop`.
 
 ## Installing
 

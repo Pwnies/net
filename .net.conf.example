@@ -3,6 +3,13 @@ common:
   dns: 8.8.8.8, 8.8.4.4
   hostname: <name>s-MacBook-Pro
 
+ignore_interfaces:
+- docker0
+- br0
+- vboxnet0
+- tap0
+- tun0
+
 wired:
   dns: dhcp
   mac: default
