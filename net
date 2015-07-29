@@ -518,7 +518,8 @@ def stop(iface):
         stop_wpa(iface)
         rm('/var/run/wpa_supplicant/%s' % iface,
            '/tmp/wpa_cli.%s.sh' % iface,
-           '/tmp/wpa_cli.%s.log' % iface)
+           '/tmp/wpa_cli.%s.log' % iface,
+           '/tmp/wpa_supplicant.%s.conf' % iface)
 
     stop_dhcp(iface)
     run("ip addr flush dev %s" % iface)
@@ -584,6 +585,7 @@ def do_connect(conn, psk = None):
             iface = get_default_wifi_iface()
         else:
             iface = get_default_wired_iface()
+    stop(iface)
 
     # Evaluate configuration
     if psk and wpa:
@@ -625,7 +627,7 @@ def do_connect(conn, psk = None):
         wpa_conf = '/tmp/wpa_supplicant.%s.conf' % iface
         with open(wpa_conf, 'w') as fd:
             os.fchown(fd.fileno(), 0, 0)
-            os.fchmod(fd.fileno(), 0o700)
+            os.fchmod(fd.fileno(), 0o600)
             fd.write(write_wpa_conf(wpa))
 
     if addr:
@@ -648,8 +650,6 @@ def do_connect(conn, psk = None):
         network = [start_dhcp_cmd(iface, hostname)]
 
     # Run configuration
-    stop(iface)
-
     set_mac(iface, mac)
     set_dns(dns)
 
@@ -686,6 +686,7 @@ fi
 echo %s
 
 %s
+rm -f /tmp/wpa_ctrl_*-1
 %s
 
 echo %s
