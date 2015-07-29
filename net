@@ -355,7 +355,7 @@ def unescape_c_str(data):
 
 def escape_c_str(data):
     return re.sub(
-        r'[^a-zA-Z1-9!#$%&()*+,./:;<=>?@\[\]^_`{|}~ -]|(\s*$)|(^\s*)',
+        r'[^a-zA-Z0-9!#$%&()*+,./:;<=>?@\[\]^_`{|}~ -]|(\s*$)|(^\s*)',
         lambda x: ''.join(r'\x%02x' % ord(c) for c in x.group(0)),
         data
     )
