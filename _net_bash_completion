@@ -4,8 +4,11 @@ if ! which net > /dev/null ; then
     exit
 fi
 
+# break on newline
+IFS=$'\n'
+
 # cache list of connections
-_net_connections="$(net list)"
+_net_connections=($(net --internal-list-all))
 
 _net()
 {
@@ -13,16 +16,16 @@ _net()
     local cur prev opts word code
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="--help --iface= --config= --verbose"
-    _net_connections+="$(net --internal-scan-cache)"
+    opts=(--help --iface= --config= --verbose)
+    _net_connections+=($(net --internal-scan-cache))
 
     # the first argument is a command
     if [ $COMP_CWORD == 1 ] ; then
-        opts="list scan connect stop dns mac dns ${opts}"
+        opts+=(list scan connect stop dns mac dns)
     fi
 
     if [ "${prev}" == "connect" ] ; then
-        COMPREPLY=( $(compgen -W "${_net_connections}" -- ${cur}) )
+        COMPREPLY=( $(compgen -W "$(printf "%s\n" "${_net_connections[@]}")" -- ${cur}) )
         return 0
     fi
 
@@ -39,15 +42,14 @@ _net()
     for word in "${COMP_WORDS[@]}" ; do
         for conn in ${_net_connections} ; do
             if [ "${word}" == "${conn}" ] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+                COMPREPLY=( $(compgen -W "$(printf "%s\n" "${opts[@]}")" -- ${cur}) )
                 return 0
             fi
         done
     done
 
-    opts="${_net_connections} ${opts}"
-    COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-
+    opts+=("$(printf "%s\n" "${_net_connections[@]}")")
+    COMPREPLY=( $(compgen -W "$(printf "%s\n" "${opts[@]}")" -- ${cur}) )
 }
 
 complete -F _net net

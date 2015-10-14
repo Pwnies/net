@@ -212,10 +212,10 @@ def parse_args():
     if '-h' in optional or '--help' in optional or (args and args[0] == 'help'):
         usage()
     if '--internal-list-up' in optional:
-        die(' '.join(get_ifaces_up()), 0)
+        die('\n'.join(get_ifaces_up()), 0)
     if '--internal-scan-cache' in optional:
         try:
-            die(' '.join(json.load(open('/tmp/.net-scan'))))
+            die('\n'.join(json.load(open('/tmp/.net-scan'))), 0)
         except:
             die('')
 
@@ -229,7 +229,7 @@ def parse_args():
     if '--internal-list-all' in optional:
         try:
             read_config(reraise = True)
-            die(' '.join(CONFIG.keys()), 0)
+            die('\n'.join(CONFIG.keys()), 0)
         except:
             die('')
 
