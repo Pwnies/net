@@ -1,3 +1,9 @@
+# Only run if `net` is installed
+
+if ! which net > /dev/null ; then
+    exit
+fi
+
 # cache list of connections
 _net_connections="$(net list)"
 
