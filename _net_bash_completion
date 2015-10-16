@@ -4,16 +4,21 @@ if ! which net > /dev/null ; then
     exit
 fi
 
-# break on newline
-IFS=$'\n'
-
 # cache list of connections
-_net_connections=($(net --internal-list-all))
+_net_init()
+{
+    local IFS
+    IFS=$'\n'
+    _net_connections=($(net --internal-list-all))
+}
+
+_net_init
 
 _net()
 {
     COMPREPLY=()
-    local cur prev opts word code
+    local IFS cur prev opts word code
+    IFS=$'\n'
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     opts=(--help --iface= --config= --verbose)
