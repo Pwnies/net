@@ -697,7 +697,10 @@ echo %s
                 end_marker))
 
         print 'Connecting'
-        run_or_die('wpa_supplicant -B -i %s -c %s' % (iface, wpa_conf))
+        cmd = 'wpa_supplicant -B -i %s -c %s -s' % (iface, wpa_conf)
+        if VERBOSE:
+            cmd += ' -d'
+        run_or_die(cmd)
         run_or_die('wpa_cli -B -i %s -a %s' % (iface, wpa_cli_sh))
 
         # Wait for wpa_cli
