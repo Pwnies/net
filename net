@@ -749,6 +749,9 @@ def parse_mac(mac_arg):
     die('Invalid MAC address: %s' % mac_arg)
 
 def finalize_mac(mac):
+    if mac == 'native':
+       return run_or_die("ethtool -P wlp3s0 | cut -d' ' -f3")
+
     if mac and mac != 'random':
         mac = parse_mac(mac)
     else:
