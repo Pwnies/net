@@ -1,7 +1,8 @@
 # Only run if `net` is installed
 
 if ! which net > /dev/null ; then
-    exit
+    echo "The net tool is not installed" >&2
+    return
 fi
 
 # cache list of connections
