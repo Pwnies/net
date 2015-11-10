@@ -748,9 +748,9 @@ def parse_mac(mac_arg):
         return fmt(g.zfill(2) for g in m.groups())
     die('Invalid MAC address: %s' % mac_arg)
 
-def finalize_mac(mac):
+def finalize_mac(iface, mac):
     if mac == 'native':
-       return run_or_die("ethtool -P wlp3s0 | cut -d' ' -f3")
+       mac = run_or_die("ethtool -P " + iface).split()[2]
 
     if mac and mac != 'random':
         mac = parse_mac(mac)
@@ -762,7 +762,7 @@ def finalize_mac(mac):
     return mac
 
 def set_mac(iface, mac):
-    mac = finalize_mac(mac)
+    mac = finalize_mac(iface, mac)
     become_root()
     run_or_die('ifconfig %s down hw ether %s' % (iface, mac))
     run_or_die('ifconfig %s up' % iface)
