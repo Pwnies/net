@@ -24,13 +24,12 @@ eduroam:
   ssid: eduroam
   wpa: |
     network={
-      identity="YOUR-ID-HERE@alumni.ku.dk"
+      identity="YOUR-ID-HERE@ku.dk"
       password="YOUR-PASSPHRASE-HERE"
-      anonymous_identity="anonymous@di.ku.dk"
       key_mgmt=WPA-EAP
       pairwise=TKIP
       eap=TTLS
-      phase2="auth=PAP"
+      phase2="auth=MSCHAPv2"
     }
 
 my-home-network:
