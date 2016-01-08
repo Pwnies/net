@@ -127,6 +127,9 @@ def become_root():
     if os.getuid() != 0:
         os.execlp('sudo', 'sudo', 'python', *sys.argv)
 
+def ignore(iface):
+    return any(ign.match(iface) for ign in IGNORED_IFACES)
+
 def get_ifaces(only_up = False):
     ifaces = []
     for iface, parms in re.findall(r'^\d+: (\S+): <([^>]*)>',
@@ -137,7 +140,7 @@ def get_ifaces(only_up = False):
             continue
         if only_up and 'UP' not in parms:
             continue
-        if iface not in IGNORED_IFACES:
+        if not ignore(iface):
             ifaces.append(iface)
     return ifaces
 
@@ -150,7 +153,7 @@ def is_wifi_iface(iface):
 def get_wifi_ifaces():
     return [iface for iface in
             run_or_die("iw dev | awk '/^[ \t]*Interface / {print $2}'").strip().split('\n')
-            if iface not in IGNORED_IFACES]
+            if not ignore(iface)]
 
 def get_wifi_iface_up():
     for iface in get_ifaces_up():
@@ -309,7 +312,8 @@ def read_config(reraise = False):
         die('Empty configuration')
     known_keys = ('ssid', 'psk', 'mac', 'dns', 'wpa', 'hostname', 'interface',
                   'addr', 'gateway')
-    IGNORED_IFACES = set(raw_config.pop('ignore_interfaces', []))
+    IGNORED_IFACES = set(re.compile(ign) for ign in \
+                         raw_config.pop('ignore_interfaces', []))
     for name, raw_conn in raw_config.items():
         conn = {}
         for key, val in raw_conn.items():

@@ -4,11 +4,15 @@ common:
   hostname: <name>s-MacBook-Pro
 
 ignore_interfaces:
-- docker0
-- br0
-- vboxnet0
-- tap0
-- tun0
+- br[0-9]+
+- tap[0-9]+
+- tun[0-9]+
+# Docker
+- docker[0-9]+
+# Virtualbox
+- vboxnet[0-9]+
+# VMWare
+- vmnet[0-9]+
 
 wired:
   dns: dhcp
