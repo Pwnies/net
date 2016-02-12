@@ -650,6 +650,9 @@ def do_connect(conn, psk = None):
             'ip route add default via %s dev %s' % (gateway, iface),
             'ip link set %s up' % iface,
             ]
+
+        if gateway == 'none':
+            network.pop(1)
     else:
         network = [start_dhcp_cmd(iface, hostname)]
 
