@@ -843,6 +843,7 @@ def do_connect(conn, psk = None):
         wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
         wpa['ctrl_interface_group'] = '0'
         wpa_conf = '/tmp/wpa_supplicant.%s.conf' % iface
+        wpa_log = '/tmp/wpa_supplicant.%s.log' % iface
         write_root_file(wpa_conf, 0o600, write_wpa_conf(wpa))
 
     if addr:
@@ -912,9 +913,10 @@ echo %s
                 end_marker))
 
         print 'Connecting'
-        cmd = 'wpa_supplicant -B -i %s -c %s -s' % (iface, wpa_conf)
+        cmd = 'wpa_supplicant -B -i %s -c %s -f %s' % (iface, wpa_conf, wpa_log)
         if VERBOSE:
             cmd += ' -d'
+        rm(wpa_log)
         run_or_die(cmd)
         run_or_die('wpa_cli -B -i %s -a %s' % (iface, wpa_cli_sh))
 
