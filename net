@@ -717,9 +717,10 @@ def stop(iface):
     conns = read_connections()
     if iface in conns:
         conn = conns[iface]
-        vpn = CONFIG[conn].get('vpn')
-        if vpn:
-            stop_vpn(vpn)
+        if conn in CONFIG:
+            vpn = CONFIG[conn].get('vpn')
+            if vpn:
+                stop_vpn(vpn)
 
     if is_wifi_iface(iface):
         stop_wpa(iface)
