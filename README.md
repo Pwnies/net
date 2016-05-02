@@ -9,7 +9,7 @@ RTFM:
 ```
 $ net help
 usage: net [<command>] [<args>] [--config=<config>] [--iface=<interface>]
-           [--verbose] [-h] [--help]
+           [--no-vpn] [--verbose] [-h] [--help]
 
 Shorthands:
   If no positional arguments are given the command is "list".
