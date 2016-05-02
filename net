@@ -10,7 +10,28 @@ CONFIG      = None
 COMMON      = None
 IFACE       = None
 VERBOSE     = False
-IGNORED_IFACES = set([])
+IGNORED_IFACES = set()
+IGNORED_SSIDS  = set()
+
+# Use these if they are not defined in the configuration file
+FALLBACK_CONFIG = {
+    'ignored': {
+        'interfaces': [
+            r'docker[0-9]+',
+            r'br[0-9]+',
+            r'vboxnet[0-9]+',
+            r'tap[0-9]+',
+            r'tun[0-9]+',
+            r'vmnet[0-9]+',
+            ],
+        'ssids': [],
+        },
+    'wired': {
+        'dns'     : 'dhcp',
+        'mac'     : 'default',
+        'hostname': None,
+        },
+    }
 
 def die(s = '', exitcode = 1):
     if s:
@@ -42,6 +63,10 @@ Commands:
   mac [<mac>]:
     Change the MAC address of the interface specified by --iface.  If no address
     is given, one is chosen at random.
+  vpn <name> [stop]:
+    Connect to, or disconnect from, VPN.
+  show [<connection>]:
+    Show configuration options.  If no connection is specified, all are show.
   help:
     You're reading it.
 
@@ -52,6 +77,9 @@ Options:
   --iface=<interface>:
     Select networking interface.  Overridden by configuration file if specified.
     Defaults to first WiFi capable interface found.
+  --no-vpn:
+    Don't connect to a VPN.  Acts as if the connection configuration did not
+    have a `vpn` field.
   --verbose:
     Print every executed command (and the result) to stdout.'''
     die()
@@ -69,6 +97,49 @@ def red(s):
 
 def green(s):
     return ansi(s, ANSI_ESC % 32)
+
+def optlist(s, opts, default = None, abbrevs = None):
+    # Option list:
+    #  [(key, altkey1, altkey2, ..., value), ...]
+    #  [key, ...]
+    def conv(opt):
+        if isinstance(opt, (str, unicode)):
+            return ((opt,),opt)
+        return (opt[:-1], opt[-1])
+    opts = map(conv, opts)
+
+    abbrevs = abbrevs or {}
+    for ks, _ in opts:
+        k = ks[0]
+        abbrevs.setdefault(k, k[0])
+
+    if len(set(abbrevs.values())) != len(opts):
+        die('Ambiguous options')
+
+    ls = map(len, abbrevs.values())
+    if max(ls) > 1 or min(ls) < 1:
+        die('Abbreviation must be exactly one character')
+
+    abbrs = []
+    pabbrs = []
+    for ks, v in opts:
+        k = ks[0]
+        abbr = abbrevs[k]
+        abbrs.append(abbr)
+        if default in (k, v):
+            abbr = green(abbr.upper())
+        pabbrs.append(abbr)
+    prompt = '%s [%s]: ' % (s, '/'.join(pabbrs))
+
+    while True:
+        opt = raw_input(prompt).lower()
+        if opt == '':
+            return default
+        for ks, v in opts:
+            abbr = abbrevs[ks[0]]
+            if opt == abbr or opt in ks:
+                return v
+        print 'Please select one of %s' % ', '.join(abbrs)
 
 def yesno (s, default):
     optlist = green('Y') + '/n' if default else 'y/' + green('N')
@@ -93,9 +164,10 @@ def run(cmd, exit_on_error = False):
                          shell = True,
                          )
     o, e = p.communicate()
-    if p.poll() != 0:
+    status = p.poll()
+    if status != 0:
         if exit_on_error or VERBOSE:
-            print 'Failed: %s' % cmd
+            print 'Failed (status: %d): %s' % (status, cmd)
         if exit_on_error:
             die(e)
         else:
@@ -109,6 +181,45 @@ def run(cmd, exit_on_error = False):
 
 def run_or_die(cmd):
     return run(cmd, exit_on_error = True)
+
+def daemon():
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # Return as parent
+            return False
+    except OSError, e:
+        die('fork failed')
+
+    # decouple from parent environment
+    os.chdir('/')
+    os.setsid()
+    os.umask(0)
+
+    # do second fork
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # exit from second parent
+            sys.exit(0)
+    except OSError, e:
+        die('fork failed')
+
+    # Close file descriptors
+    # sys.stdout.flush()
+    # sys.stderr.flush()
+    # for i in range(1024):
+    #     os.close(i)
+
+    # Return as daemon
+    return True
+
+def run_daemon(argv):
+    if VERBOSE:
+        print '+ (DAEMON)', ' '.join(argv)
+    if daemon():
+        os.execvp(argv[0], argv)
+        die('exec failed')
 
 def rm(*paths):
     for p in paths:
@@ -126,6 +237,12 @@ def expand(path):
 def become_root():
     if os.getuid() != 0:
         os.execlp('sudo', 'sudo', 'python', *sys.argv)
+
+def write_root_file(path, mode, data):
+    with open(path, 'w') as fd:
+        os.fchown(fd.fileno(), 0, 0)
+        os.fchmod(fd.fileno(), mode)
+        fd.write(data)
 
 def ignore(iface):
     return any(ign.match(iface) for ign in IGNORED_IFACES)
@@ -191,6 +308,12 @@ def get_addr4(iface):
         return addrs[0]
     return 'no address'
 
+def bash_complete(xs):
+    # XXX: Make this robust
+    def quote(s):
+        return s.replace(' ', r'\\ ')
+    die('\n'.join(map(quote, xs)), 0)
+
 def parse_args():
     optional = {}
     args = sys.argv[1:][::]
@@ -215,24 +338,25 @@ def parse_args():
     if '-h' in optional or '--help' in optional or (args and args[0] == 'help'):
         usage()
     if '--internal-list-up' in optional:
-        die('\n'.join(get_ifaces_up()), 0)
+        bash_complete(get_ifaces_up())
     if '--internal-scan-cache' in optional:
         try:
-            die('\n'.join(json.load(open('/tmp/.net-scan'))), 0)
+            bash_complete(json.load(open('/tmp/.net-scan')))
         except:
             die('')
 
-    global CONFIG_FILE, IFACE, VERBOSE
+    global CONFIG_FILE, IFACE, VERBOSE, NOVPN
     CONFIG_FILE = optional.pop('--config', DEFAULT_CONFIG_FILE)
     if CONFIG_FILE == '-':
         CONFIG_FILE = None
-    IFACE  = optional.pop('--iface', None)
+    IFACE   = optional.pop('--iface', None)
     VERBOSE = optional.pop('--verbose', False)
+    NOVPN   = optional.pop('--no-vpn', False)
 
     if '--internal-list-all' in optional:
         try:
             read_config(reraise = True)
-            die('\n'.join(CONFIG.keys()), 0)
+            bash_complete(CONFIG.keys())
         except:
             die('')
 
@@ -242,7 +366,7 @@ def parse_args():
     if len(args) == 0:
         return 'list', []
 
-    if args[0] in ('list', 'scan', 'connect', 'mac', 'dns', 'stop'):
+    if args[0] in ('list', 'scan', 'connect', 'mac', 'dns', 'stop', 'show', 'vpn'):
         cmd = args.pop(0)
     else:
         cmd = 'connect'
@@ -292,7 +416,7 @@ def write_wpa_conf(conf):
     return '\n'.join(loop(conf)) + '\n'
 
 def read_config(reraise = False):
-    global CONFIG, COMMON, IGNORED_IFACES
+    global CONFIG, COMMON, IGNORED_IFACES, IGNORED_SSIDS, VPN
     if CONFIG is not None:
         return
     CONFIG = {}
@@ -310,13 +434,19 @@ def read_config(reraise = False):
         if reraise:
             raise
         die('Empty configuration')
+    for k, v in FALLBACK_CONFIG.items():
+        raw_config.setdefault(k, v)
+
+    IGN = raw_config.pop('ignored', {})
+    IGNORED_IFACES = set(re.compile(ign) for ign in IGN.get('interfaces') or [])
+    IGNORED_SSIDS = set(re.compile(ign) for ign in IGN.get('ssids') or [])
+    VPN = raw_config.pop('vpn', {})
+
     known_keys = ('ssid', 'psk', 'mac', 'dns', 'wpa', 'hostname', 'interface',
-                  'addr', 'gateway')
-    IGNORED_IFACES = set(re.compile(ign) for ign in \
-                         raw_config.pop('ignore_interfaces', []))
+                  'addr', 'gateway', 'vpn')
     for name, raw_conn in raw_config.items():
         conn = {}
-        for key, val in raw_conn.items():
+        for key, val in (raw_conn or {}).items():
             if key == 'wpa':
                 val = parse_wpa_conf(val)
             if key not in known_keys:
@@ -334,6 +464,21 @@ def read_config(reraise = False):
             COMMON = conn
         else:
             CONFIG[name] = conn
+
+    # Set common settings
+    for name, conn in CONFIG.items():
+        for key, val in COMMON.items():
+            conn.setdefault(key, val)
+
+def do_show(k = None):
+    read_config()
+    if k:
+        if k not in CONFIG:
+            die('No such key: %s' % k)
+        v = CONFIG[k]
+    else:
+        v = CONFIG
+    die(yaml.dump(v), 0)
 
 def do_list():
     read_config()
@@ -424,7 +569,11 @@ def do_scan():
                 ok = False
 
         ap['SSID'] = unescape_c_str(ap['SSID'])
-        ssid = escape_c_str(ap['SSID'])
+        try:
+            ssid = ap['SSID'].decode('utf8')
+        except UnicodeDecodeError:
+            ssid = escape_c_str(ap['SSID'])
+
         quality = float(signal_re.match(ap['signal']).group(1))
         crypto = ap.get('RSN', ap.get('WPA', ''))
         if crypto:
@@ -460,7 +609,7 @@ def start_dhcp(iface, hostname = None):
 
 def stop_dhcp_cmd(iface):
     pattern = start_dhcp_cmd(iface)
-    return 'pkill -f "%s"' % pattern
+    return 'pkill -f "^%s"' % pattern
 
 def stop_dhcp(iface):
     run(stop_dhcp_cmd(iface))
@@ -474,6 +623,53 @@ def renew_dhcp_cmd():
 
 def renew_dhcp():
     run(renew_dhcp_cmd())
+
+def start_vpn_cmd(name):
+    return 'openvpn --config /tmp/%s.ovpn --log /tmp/%s.ovpn.log' % \
+        (name, name)
+
+def start_vpn(name):
+    try:
+        conf = VPN[name]
+    except KeyError:
+        die('No such VPN: %s' % name)
+
+    path_conf = '/tmp/%s.ovpn' % name
+    path_log = path_conf + '.log'
+    write_root_file(path_conf, 0o600, conf)
+    rm(path_log)
+    run_daemon(start_vpn_cmd(name).split())
+
+    # Wait for OpenVPN to start
+    while True:
+        try:
+            fd = open(path_log)
+            break
+        except IOError:
+            time.sleep(0.1)
+
+    # Now we can remove the config file
+    rm(path_conf)
+
+    # Wait for the connection to be established
+    line = ''
+    marker = 'Initialization Sequence Completed'
+    while True:
+        s = fd.readline()
+        line += s
+        if not s or s[-1] != '\n':
+            time.sleep(0.05)
+            continue
+        line = line.rstrip()
+        if VERBOSE:
+            print line
+        if marker in line:
+            break
+        line = ''
+
+def stop_vpn(name):
+    pattern = start_vpn_cmd(name)
+    run('pkill -9 -f "^%s"' % pattern)
 
 def finalize_hostname(hostname):
     names = ('Jonas', 'Noah', 'Liam', 'Jacob', 'Mason', 'William', 'Ethan',
@@ -515,9 +711,16 @@ def finalize_hostname(hostname):
 def stop_wpa(iface):
     for pattern in ('wpa_supplicant .* -i *%s' % iface,
                     'wpa_cli .* -i *%s' % iface):
-        run('pkill -f "%s"' % pattern)
+        run('pkill -f "^%s"' % pattern)
 
 def stop(iface):
+    conns = read_connections()
+    if iface in conns:
+        conn = conns[iface]
+        vpn = CONFIG[conn].get('vpn')
+        if vpn:
+            stop_vpn(vpn)
+
     if is_wifi_iface(iface):
         stop_wpa(iface)
         rm('/var/run/wpa_supplicant/%s' % iface,
@@ -574,12 +777,13 @@ def do_connect(conn, psk = None):
     else:
         ssid = CONFIG[conn].get('ssid', None)
         def get(key, default = None):
-            return CONFIG[conn].get(key, COMMON.get(key, default))
+            return CONFIG[conn].get(key, default)
 
     psk      = get('psk', psk)
     dns      = get('dns')
     mac      = get('mac')
     wpa      = get('wpa')
+    vpn      = get('vpn')
     hostname = get('hostname')
     addr     = get('addr')
     gateway  = get('gateway')
@@ -590,6 +794,16 @@ def do_connect(conn, psk = None):
         else:
             iface = get_default_wired_iface()
     stop(iface)
+    up = get_ifaces_up()
+    if up:
+        a = optlist('Stop connection on other interfaces?',
+                    ('yes', 'no', 'all'), default = 'all')
+        if a == 'yes':
+            for i in up:
+                if yesno('Stop connection on %s?' % i, True):
+                    stop(i)
+        elif a == 'all':
+            map(stop, up)
 
     # Evaluate configuration
     if psk and wpa:
@@ -629,10 +843,7 @@ def do_connect(conn, psk = None):
         wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
         wpa['ctrl_interface_group'] = '0'
         wpa_conf = '/tmp/wpa_supplicant.%s.conf' % iface
-        with open(wpa_conf, 'w') as fd:
-            os.fchown(fd.fileno(), 0, 0)
-            os.fchmod(fd.fileno(), 0o600)
-            fd.write(write_wpa_conf(wpa))
+        write_root_file(wpa_conf, 0o600, write_wpa_conf(wpa))
 
     if addr:
         try:
@@ -673,10 +884,7 @@ def do_connect(conn, psk = None):
         wpa_cli_log = '/tmp/wpa_cli.%s.log' % iface
         beg_marker = '[[[BEG]]]'
         end_marker = '[[[END]]]'
-        with open(wpa_cli_sh, 'w') as fd:
-            os.fchown(fd.fileno(), 0, 0)
-            os.fchmod(fd.fileno(), 0o700)
-            fd.write('''
+        write_root_file(wpa_cli_sh, 0o700, '''
 #!/bin/sh
 
 LOGFILE=%s
@@ -736,8 +944,14 @@ echo %s
                 print line
             line = ''
 
-    add_connection(iface, conn)
     print 'DONE (addr: %s)' % get_addr4(iface)
+
+    if vpn:
+        print 'Starting VPN (%s)' % vpn
+        start_vpn(vpn)
+        print 'DONE'
+
+    add_connection(iface, conn)
 
 def parse_mac(mac_arg):
     # Borrowed from SpoofMAC
@@ -805,6 +1019,15 @@ def do_stop(*args):
     else:
         stop(ifaces[0])
 
+def do_vpn(*args, **kwargs):
+    become_root()
+    vpn = args[0]
+    if kwargs.get('stop'):
+        stop_vpn(vpn)
+    else:
+        read_config()
+        start_vpn(vpn)
+
 def main():
     cmd, args = parse_args()
     if   cmd == 'list':
@@ -827,6 +1050,17 @@ def main():
         do_dns(*args)
     elif cmd == 'stop':
         do_stop(*args)
+    elif cmd == 'vpn':
+        if len(args) == 2 and args[1] == 'stop':
+            do_vpn(*args, stop = True)
+        elif len(args) == 1:
+            do_vpn(*args, stop = False)
+        else:
+            die('Command "vpn" takes one argument')
+    elif cmd == 'show':
+        if len(args) > 1:
+            die('Command "show" takes one or no arguments')
+        do_show(*args)
 
 if __name__ == '__main__':
     try:

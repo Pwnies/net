@@ -2,17 +2,40 @@ common:
   mac: 00:??:??:??:??:??
   dns: 8.8.8.8, 8.8.4.4
   hostname: <name>s-MacBook-Pro
+  # Always connect to VPN
+  vpn: myvpn
 
-ignore_interfaces:
-- br[0-9]+
-- tap[0-9]+
-- tun[0-9]+
-# Docker
-- docker[0-9]+
-# Virtualbox
-- vboxnet[0-9]+
-# VMWare
-- vmnet[0-9]+
+ignored:
+  interfaces:
+  - br[0-9]+
+  - tap[0-9]+
+  - tun[0-9]+
+  # Docker
+  - docker[0-9]+
+  # Virtualbox
+  - vboxnet[0-9]+
+  # VMWare
+  - vmnet[0-9]+
+
+vpn:
+  myvpn: |
+    client
+    dev tun
+
+    proto udp
+    remote my-server-1 1194
+
+    resolv-retry infinite
+    nobind
+    persist-key
+    persist-tun
+
+    ca ca.crt
+    cert client.crt
+    key client.key
+
+    comp-lzo
+    verb 3
 
 wired:
   dns: dhcp
@@ -39,3 +62,4 @@ eduroam:
 my-home-network:
   ssid: SSID-HERE
   psk: PASSPHRASE-HERE
+  vpn: # Empty: don't connect to VPN when at home

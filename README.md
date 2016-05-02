@@ -32,6 +32,10 @@ Commands:
   mac [<mac>]:
     Change the MAC address of the interface specified by --iface.  If no address
     is given, one is chosen at random.
+  vpn <name> [stop]:
+    Connect to, or disconnect from, VPN.
+  show [<connection>]:
+    Show configuration options.  If no connection is specified, all are show.
   help:
     You're reading it.
 
@@ -42,6 +46,9 @@ Options:
   --iface=<interface>:
     Select networking interface.  Overridden by configuration file if specified.
     Defaults to first WiFi capable interface found.
+  --no-vpn:
+    Don't connect to a VPN.  Acts as if the connection configuration did not
+    have a `vpn` field.
   --verbose:
     Print every executed command (and the result) to stdout.
 ```
@@ -65,17 +72,40 @@ common:
   mac: 00:??:??:??:??:??
   dns: 8.8.8.8, 8.8.4.4
   hostname: <name>s-MacBook-Pro
+  # Always connect to VPN
+  vpn: myvpn
 
-ignore_interfaces:
-- br[0-9]+
-- tap[0-9]+
-- tun[0-9]+
-# Docker
-- docker[0-9]+
-# Virtualbox
-- vboxnet[0-9]+
-# VMWare
-- vmnet[0-9]+
+ignored:
+  interfaces:
+  - br[0-9]+
+  - tap[0-9]+
+  - tun[0-9]+
+  # Docker
+  - docker[0-9]+
+  # Virtualbox
+  - vboxnet[0-9]+
+  # VMWare
+  - vmnet[0-9]+
+
+vpn:
+  myvpn: |
+    client
+    dev tun
+
+    proto udp
+    remote my-server-1 1194
+
+    resolv-retry infinite
+    nobind
+    persist-key
+    persist-tun
+
+    ca ca.crt
+    cert client.crt
+    key client.key
+
+    comp-lzo
+    verb 3
 
 wired:
   dns: dhcp
@@ -102,6 +132,7 @@ eduroam:
 my-home-network:
   ssid: SSID-HERE
   psk: PASSPHRASE-HERE
+  vpn: # Empty: don't connect to VPN when at home
 ```
 
 Using this config file you can connect to `my-home-network` using the command:
@@ -111,18 +142,19 @@ $ net my-home-network
 ```
 
 Notice that the section `common` does not define a network but rather settings
-common to *all* network configurations (in this case using Google's DNS servers
-and randomizing the MAC address and hostname [`<name>` will be replaced by an
-actual name]).
+common to *all* network configurations (in this case using Google's DNS servers,
+randomizing the MAC address and hostname [`<name>` will be replaced by an actual
+name] and connecting to a VPN).
 
-The `ignore_interface` section does not define a network either, and instead
-contains a list of interfaces to be ignored by e.g. `net stop`.
+The `ignored` and `vpn` sections do not define networks either.  The `ignored`
+section contains a list of interfaces to be ignored by e.g. `net stop` and the
+`vpn` section contains the OpenVPN configurations for each VPN.
 
 ## Installing
 
 Put `net` in your `PATH`.
 
-## `Bash` comletion
+## `Bash` completion
 
 Put `_net_bash_completion` in your path and add the line
 
@@ -148,6 +180,7 @@ to `~/.bash_completion`.
 | `/usr/bin/chattr`      | `e2fsprogs`                   |
 | `/usr/bin/expand`      | `coreutils`                   |
 | `/usr/bin/pkill`       | `procps`                      |
+| `/usr/sbin/openvpn`    | `openvpn`                     |
 | Python package `yaml`  | `python-yaml` / PyPI `pyyaml` |
 
 ## Contributers
