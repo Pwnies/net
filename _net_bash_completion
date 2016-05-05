@@ -23,7 +23,7 @@ _net()
     cur="${COMP_WORDS[COMP_CWORD]}"
     fst="${COMP_WORDS[1]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts=(--help --iface= --config= --verbose)
+    opts=(--help --iface= --config= --verbose --no-vpn)
     _net_connections+=($(net --internal-scan-cache))
 
     # the first argument is a command
