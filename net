@@ -958,6 +958,8 @@ echo %s
     print 'DONE (addr: %s)' % get_addr4(iface)
 
     if vpn and not NOVPN:
+        # Better safe than sorry
+        stop_vpn(vpn)
         print 'Starting VPN (%s)' % vpn
         start_vpn(vpn)
         print 'DONE'
