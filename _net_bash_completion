@@ -21,13 +21,14 @@ _net()
     local IFS cur prev opts word code
     IFS=$'\n'
     cur="${COMP_WORDS[COMP_CWORD]}"
+    fst="${COMP_WORDS[1]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     opts=(--help --iface= --config= --verbose)
     _net_connections+=($(net --internal-scan-cache))
 
     # the first argument is a command
     if [ $COMP_CWORD == 1 ] ; then
-        opts+=(list scan connect stop dns mac dns)
+        opts+=(list scan connect stop dns mac dns vpn)
     fi
 
     if [ "${prev}" == "connect" ] ; then
@@ -42,6 +43,15 @@ _net()
 
     if [ "${prev}" == "mac" ] || [ "${prev}" == "dns" ] ; then
         return 1
+    fi
+
+    if [ "${prev}" == "vpn" ] ; then
+       COMPREPLY=( $(compgen -W "$(net --internal-list-vpn)" -- ${cur}) )
+       return 0
+    fi
+    if [ "${fst}" == "vpn" ] && [ $COMP_CWORD == 3 ] ; then
+       COMPREPLY=( $(compgen -W stop -- ${cur}) )
+       return 0
     fi
 
     # check if a connection was already chosen

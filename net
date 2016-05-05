@@ -308,6 +308,10 @@ def get_addr4(iface):
         return addrs[0]
     return 'no address'
 
+def get_vpns():
+    read_config()
+    return VPN.keys()
+
 def bash_complete(xs):
     # XXX: Make this robust
     def quote(s):
@@ -315,6 +319,8 @@ def bash_complete(xs):
     die('\n'.join(map(quote, xs)), 0)
 
 def parse_args():
+    global CONFIG_FILE, IFACE, VERBOSE, NOVPN
+
     optional = {}
     args = sys.argv[1:][::]
     i = 0
@@ -335,20 +341,22 @@ def parse_args():
         else:
             i += 1
 
+    CONFIG_FILE = optional.pop('--config', DEFAULT_CONFIG_FILE)
+    if CONFIG_FILE == '-':
+        CONFIG_FILE = None
+
     if '-h' in optional or '--help' in optional or (args and args[0] == 'help'):
         usage()
     if '--internal-list-up' in optional:
         bash_complete(get_ifaces_up())
+    if '--internal-list-vpn' in optional:
+        bash_complete(get_vpns())
     if '--internal-scan-cache' in optional:
         try:
             bash_complete(json.load(open('/tmp/.net-scan')))
         except:
             die('')
 
-    global CONFIG_FILE, IFACE, VERBOSE, NOVPN
-    CONFIG_FILE = optional.pop('--config', DEFAULT_CONFIG_FILE)
-    if CONFIG_FILE == '-':
-        CONFIG_FILE = None
     IFACE   = optional.pop('--iface', None)
     VERBOSE = optional.pop('--verbose', False)
     NOVPN   = optional.pop('--no-vpn', False)
