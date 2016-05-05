@@ -1026,10 +1026,13 @@ def do_vpn(*args, **kwargs):
     become_root()
     vpn = args[0]
     if kwargs.get('stop'):
+        print 'Stopping VPN (%s)' % vpn
         stop_vpn(vpn)
     else:
         read_config()
+        print 'Starting VPN (%s)' % vpn
         start_vpn(vpn)
+        print 'DONE'
 
 def main():
     cmd, args = parse_args()
