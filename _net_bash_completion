@@ -41,7 +41,12 @@ _net()
         return 0
     fi
 
-    if [ "${prev}" == "mac" ] || [ "${prev}" == "dns" ] ; then
+    if [ "${prev}" == "dns" ] ; then
+        COMPREPLY=( $(compgen -W dhcp -- ${cur}) )
+        return 0
+    fi
+
+    if [ "${prev}" == "mac" ] ; then
         return 1
     fi
 

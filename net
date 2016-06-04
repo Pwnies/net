@@ -1010,6 +1010,8 @@ def do_mac(mac = None):
     set_mac(IFACE, mac)
 
 def do_dns(*dns):
+    if dns == ('dhcp', ):
+        dns = None
     set_dns(dns)
     if not dns:
         renew_dhcp()
