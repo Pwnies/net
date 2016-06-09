@@ -885,7 +885,7 @@ def do_connect(conn, psk = None):
 
     if not wpa:
         if is_wifi_iface(iface):
-            print 'Connecting'
+            print 'Connecting to %s' % ssid
             escaped_ssid = ''.join("\\x%02x" % ord(c) for c in ssid)
             run('iwconfig %s key open essid -- "%s"' % (iface, escaped_ssid))
         print 'Sending DHCP request'
@@ -923,7 +923,7 @@ echo %s
                 '\n'.join(network),
                 end_marker))
 
-        print 'Connecting'
+        print 'Connecting to %s' % ssid
         cmd = 'wpa_supplicant -B -i %s -c %s -f %s' % (iface, wpa_conf, wpa_log)
         if VERBOSE:
             cmd += ' -d'
