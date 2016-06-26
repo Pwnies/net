@@ -249,10 +249,9 @@ def ignore(iface):
 
 def get_ifaces(only_up = False):
     ifaces = []
-    for iface, parms in re.findall(r'^\d+: (\S+)(?:@\S+): <([^>]*)>',
+    for iface, parms in re.findall(r'^\d+: (\S+)(?:@\S+)?: <([^>]*)>',
                                    run_or_die('ip link show'),
                                    re.MULTILINE):
-        parms = parms.split(',')
         if 'LOOPBACK' in parms:
             continue
         if only_up and 'UP' not in parms:
@@ -347,6 +346,10 @@ def parse_args():
 
     if '-h' in optional or '--help' in optional or (args and args[0] == 'help'):
         usage()
+
+    read_config()
+    if '--internal-list-all' in optional:
+        bash_complete(CONFIG.keys())
     if '--internal-list-up' in optional:
         bash_complete(get_ifaces_up())
     if '--internal-list-vpn' in optional:
@@ -360,13 +363,6 @@ def parse_args():
     IFACE   = optional.pop('--iface', None)
     VERBOSE = optional.pop('--verbose', False)
     NOVPN   = optional.pop('--no-vpn', False)
-
-    if '--internal-list-all' in optional:
-        try:
-            read_config(reraise = True)
-            bash_complete(CONFIG.keys())
-        except:
-            die('')
 
     if optional:
         die('Unknown argument: %s' % optional.keys()[0])
