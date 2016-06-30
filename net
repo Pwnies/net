@@ -249,7 +249,7 @@ def ignore(iface):
 
 def get_ifaces(only_up = False):
     ifaces = []
-    for iface, parms in re.findall(r'^\d+: (\S+)(?:@\S+)?: <([^>]*)>',
+    for iface, parms in re.findall(r'^\d+: (\S+?)(?:@\S+)?: <([^>]*)>',
                                    run_or_die('ip link show'),
                                    re.MULTILINE):
         if 'LOOPBACK' in parms:
