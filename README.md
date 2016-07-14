@@ -183,6 +183,8 @@ to `~/.bash_completion`.
 | `/usr/sbin/openvpn`    | `openvpn`                     |
 | Python package `yaml`  | `python-yaml` / PyPI `pyyaml` |
 
+It is also a good idea to uninstall resolvconf, as it overwrites the DNS settings.
+
 ## Contributers
 
 This script was developed by [myself](https://github.com/br0ns) and
