@@ -1,5 +1,5 @@
 #!/usr/bin/env python2.7
-import os, sys, time, subprocess, re, random, yaml, json
+import os, sys, time, subprocess, re, random, yaml, json, resource
 
 # Based on https://git.pwnies.dk/IdolfHatler/vcsh-wifi
 
@@ -12,6 +12,7 @@ IFACE       = None
 VERBOSE     = False
 IGNORED_IFACES = set()
 IGNORED_SSIDS  = set()
+VPN_TMPSTOP_DELAY = 60*5
 
 # Use these if they are not defined in the configuration file
 FALLBACK_CONFIG = {
@@ -63,8 +64,9 @@ Commands:
   mac [<mac>]:
     Change the MAC address of the interface specified by --iface.  If no address
     is given, one is chosen at random.
-  vpn <name> [stop]:
-    Connect to, or disconnect from, VPN.
+  vpn <name> [stop|tmpstop [delay]]:
+    Connect to, or disconnect (temporarily [default = 5m] in case of tmpstop)
+    from, VPN.
   show [<connection>]:
     Show configuration options.  If no connection is specified, all are show.
   help:
@@ -675,6 +677,30 @@ def stop_vpn(name):
     pattern = start_vpn_cmd(name)
     run('pkill -9 -f "^%s"' % pattern)
 
+def tmp_stop_vpn(name, delay):
+    stop_vpn(name)
+    # Daemonize
+    if os.fork():
+        os._exit(0)
+    # Detach from terminal and create own PG
+    os.setsid()
+    # Close FD's
+    for fd in range(resource.getrlimit(resource.RLIMIT_NOFILE)[0]):
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    # Attach /dev/null to std{in,out,err}
+    devnull = os.open('/dev/null', os.O_RDWR)
+    os.dup2(devnull, 0)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    os.close(devnull)
+    # Wait
+    time.sleep(delay)
+    # Restart VPN
+    start_vpn(name)
+
 def finalize_hostname(hostname):
     names = ('Jonas', 'Noah', 'Liam', 'Jacob', 'Mason', 'William', 'Ethan',
              'Michael', 'Alexander', 'Jayden', 'Daniel', 'Elijah', 'Aiden',
@@ -1032,17 +1058,26 @@ def do_stop(*args):
     else:
         stop(ifaces[0])
 
-def do_vpn(*args, **kwargs):
+def do_vpn(vpn, cmd='start', delay=VPN_TMPSTOP_DELAY):
     become_root()
-    vpn = args[0]
-    if kwargs.get('stop'):
-        print 'Stopping VPN (%s)' % vpn
-        stop_vpn(vpn)
-    else:
+    if cmd == 'start':
         read_config()
         print 'Starting VPN (%s)' % vpn
         start_vpn(vpn)
         print 'DONE'
+    elif cmd == 'stop':
+        print 'Stopping VPN (%s)' % vpn
+        stop_vpn(vpn)
+    elif cmd == 'tmpstop':
+        read_config()
+        try:
+            delay = int(delay)
+        except:
+            die('Delay must be a number')
+        print 'Temporarily (%ds) stopping VPN (%s)' % (delay, vpn)
+        tmp_stop_vpn(vpn, delay)
+    else:
+        die('Unknown VPN command: %s' % cmd)
 
 def main():
     cmd, args = parse_args()
@@ -1067,12 +1102,9 @@ def main():
     elif cmd == 'stop':
         do_stop(*args)
     elif cmd == 'vpn':
-        if len(args) == 2 and args[1] == 'stop':
-            do_vpn(*args, stop = True)
-        elif len(args) == 1:
-            do_vpn(*args, stop = False)
-        else:
-            die('Command "vpn" takes one argument')
+        if not args:
+            die('Command "vpn" needs a VPN name')
+        do_vpn(*args)
     elif cmd == 'show':
         if len(args) > 1:
             die('Command "show" takes one or no arguments')

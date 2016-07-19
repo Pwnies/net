@@ -55,7 +55,7 @@ _net()
        return 0
     fi
     if [ "${fst}" == "vpn" ] && [ $COMP_CWORD == 3 ] ; then
-       COMPREPLY=( $(compgen -W stop -- ${cur}) )
+       COMPREPLY=( $(compgen -W "$(echo stop ; echo tmpstop)" -- ${cur}) )
        return 0
     fi
 
