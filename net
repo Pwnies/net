@@ -449,7 +449,7 @@ def read_config(reraise = False):
     VPN = raw_config.pop('vpn', {})
 
     known_keys = ('ssid', 'psk', 'mac', 'dns', 'wpa', 'hostname', 'interface',
-                  'addr', 'gateway', 'vpn')
+                  'addr', 'gateway', 'vpn', 'routes')
     for name, raw_conn in raw_config.items():
         conn = {}
         for key, val in (raw_conn or {}).items():
@@ -821,6 +821,7 @@ def do_connect(conn, psk = None):
     addr     = get('addr')
     gateway  = get('gateway')
     iface    = get('interface', IFACE)
+    routes   = get('routes', [])
     if not iface:
         if psk or ssid or wpa:
             iface = get_default_wifi_iface()
@@ -900,6 +901,37 @@ def do_connect(conn, psk = None):
             network.pop(1)
     else:
         network = [start_dhcp_cmd(iface, hostname)]
+
+    for route in routes:
+        route = route.split()
+        route_ = ' '.join(route) # Copy so we can compare against rewritten route below
+        if route[0] not in ('add', 'del'):
+            route.insert(0, 'add')
+        if route[1] in ('net', 'host'):
+            route[1] = '-' + route[1]
+        if route[1] not in ('-net', '-host'):
+            ip = route[1]
+            if '/' in ip or 'netmask' in route:
+                route.insert(1, '-net')
+            else:
+                route.insert(1, '-host')
+        ip = route[2]
+        if '/' in ip:
+            net, mask = ip.split('/')
+            mask = (1 << int(mask)) - 1
+            mask = '%d.%d.%d.%d' % \
+                   (mask       & 0xff,
+                    mask >>  8 & 0xff,
+                    mask >> 16 & 0xff,
+                    mask >> 24 & 0xff)
+            route[2] = net
+            route.insert(3, 'netmask')
+            route.insert(4, mask)
+        route = ' '.join('gw' if f == '->' else f for f in route)
+        if VERBOSE and route != route_:
+            print 'Rewrote route "%s" to "%s"' % (route_, route)
+
+        network += ['route ' + route]
 
     # Run configuration
     set_mac(iface, mac)
