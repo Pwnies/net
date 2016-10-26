@@ -751,6 +751,8 @@ def stop(iface):
             vpn = CONFIG[conn].get('vpn')
         elif 'vpn' in COMMON:
             vpn = COMMON['vpn']
+        else:
+            vpn = None
         if vpn:
             stop_vpn(vpn)
 
