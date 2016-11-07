@@ -768,13 +768,14 @@ def stop(iface):
     run_or_die("ifconfig %s down" % iface)
     del_connection(iface)
 
-def set_dns(dns):
+def set_dns(dns, append=False):
     become_root()
     run('chattr -i /etc/resolv.conf')
     if dns:
         if isinstance(dns, (str, unicode)):
             dns = [dns]
-        with open('/etc/resolv.conf', 'w') as fd:
+        with open('/etc/resolv.conf', 'a' if append else 'w') as fd:
+            fd.write('\n') # Just to be sure, if appending
             for server in dns:
                 fd.write('nameserver %s\n' % server)
         run('chattr +i /etc/resolv.conf')
@@ -1068,9 +1069,19 @@ def do_mac(mac = None):
 def do_dns(*dns):
     if dns == ('dhcp', ):
         dns = None
-    set_dns(dns)
-    if not dns:
+
+    append = False
+    if dns:
+        if dns[0] == '+':
+            dns = dns[1:]
+            append = True
+        elif dns[0][0] == '+':
+            dns = (dns[0][1:], ) + dns[1:]
+            append = True
+    else:
         renew_dhcp()
+
+    set_dns(dns, append=append)
 
 def do_stop(*args):
     read_config()
