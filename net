@@ -945,7 +945,8 @@ def do_connect(conn, psk = None):
             print 'Connecting to %s' % ssid
             escaped_ssid = ''.join("\\x%02x" % ord(c) for c in ssid)
             run('iwconfig %s key open essid -- "%s"' % (iface, escaped_ssid))
-        print 'Sending DHCP request'
+        if not addr:
+            print 'Sending DHCP request'
         for cmd in network:
             run_or_die(cmd)
     else:
