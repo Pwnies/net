@@ -449,7 +449,7 @@ def read_config(reraise = False):
     VPN = raw_config.pop('vpn', {})
 
     known_keys = ('ssid', 'psk', 'mac', 'dns', 'wpa', 'hostname', 'interface',
-                  'addr', 'gateway', 'vpn', 'routes')
+                  'addr', 'gateway', 'vpn', 'routes', 'udhcpc-config')
     for name, raw_conn in raw_config.items():
         conn = {}
         for key, val in (raw_conn or {}).items():
@@ -604,14 +604,18 @@ def do_scan():
                               crypto
                               )
 
-def start_dhcp_cmd(iface, hostname = None):
+def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None):
     cmd = 'udhcpc -R -i %s' % iface
     if hostname:
         cmd += ' -x hostname:%s' % hostname
+    if udhcpc_config:
+        cmd += ' -s %s' % udhcpc_config
     return cmd
 
-def start_dhcp(iface, hostname = None):
-    run_or_die(start_dhcp_cmd(iface, hostname))
+# TODO
+# To use or not to use?
+def start_dhcp(iface, hostname = None, udhcpc_config = None):
+    run_or_die(start_dhcp_cmd(iface, hostname, udhcpc_config))
 
 def stop_dhcp_cmd(iface):
     pattern = start_dhcp_cmd(iface)
@@ -803,6 +807,28 @@ def del_connection(iface):
         del conns[iface]
     write_connections(conns)
 
+def validate_ipv4(address):
+    octets = address.split('.')
+    if len(octets) != 4:
+        return False
+    for octet in octets:
+        if not octet.isdigit():
+            return False
+        number = int(octet)
+        if number < 0 or number > 255:
+            return False
+    return True
+
+def guess_gateway_ipv4(ip, cidr):
+        dec_ip      = int(''.join([ '%02x' % int(x) for x in ip.split('.') ]), 16)
+        dec_cidr    = (0xffffffff << (32 - int(cidr))) & 0xffffffff
+        dec_netaddr = dec_ip & dec_cidr
+        dec_gateway = dec_netaddr + 1
+        return '.'.join([str(z) for z in
+                    [int(i, 16) for i in
+                        ["".join(x) for x in
+                            zip(*[iter(hex(dec_gateway)[2:])]*2)]]])
+
 def do_connect(conn, psk = None):
     become_root()
     read_config()
@@ -815,16 +841,17 @@ def do_connect(conn, psk = None):
         def get(key, default = None):
             return CONFIG[conn].get(key, default)
 
-    psk      = get('psk', psk)
-    dns      = get('dns')
-    mac      = get('mac')
-    wpa      = get('wpa')
-    vpn      = get('vpn')
-    hostname = get('hostname')
-    addr     = get('addr')
-    gateway  = get('gateway')
-    iface    = get('interface', IFACE)
-    routes   = get('routes', [])
+    psk           = get('psk', psk)
+    dns           = get('dns')
+    mac           = get('mac')
+    wpa           = get('wpa')
+    vpn           = get('vpn')
+    hostname      = get('hostname')
+    addr          = get('addr')
+    gateway       = get('gateway')
+    iface         = get('interface', IFACE)
+    routes        = get('routes', [])
+    udhcpc_config = get('udhcpc-config')
     if not iface:
         if psk or ssid or wpa:
             iface = get_default_wifi_iface()
@@ -888,11 +915,13 @@ def do_connect(conn, psk = None):
             ip, netmask = re.findall(r'(\d+\.\d+\.\d+\.\d+)(/\d+)?', addr)[0]
         except:
             die('Invalid address: %s' % addr)
+        if not validate_ipv4(ip):
+            die('Invalid address: %s' % ip)
         if not netmask:
             print '(Guessed netmask: 255.255.255.0)'
             netmask = '/24'
         if not gateway:
-            gateway = ip.rsplit('.', 1)[0] + '.1'
+            gateway = guess_gateway_ipv4(ip, netmask[1:])
             print '(Guessed gateway: %s)' % gateway
         network = [
             'ip addr add %s%s dev %s' % (ip, netmask, iface),
@@ -903,7 +932,7 @@ def do_connect(conn, psk = None):
         if gateway == 'none':
             network.pop(1)
     else:
-        network = [start_dhcp_cmd(iface, hostname)]
+        network = [start_dhcp_cmd(iface, hostname, udhcpc_config)]
 
     for route in routes:
         route = route.split()
