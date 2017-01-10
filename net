@@ -612,11 +612,6 @@ def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None):
         cmd += ' -s %s' % udhcpc_config
     return cmd
 
-# TODO
-# To use or not to use?
-def start_dhcp(iface, hostname = None, udhcpc_config = None):
-    run_or_die(start_dhcp_cmd(iface, hostname, udhcpc_config))
-
 def stop_dhcp_cmd(iface):
     pattern = start_dhcp_cmd(iface)
     return 'pkill -f "^%s"' % pattern
