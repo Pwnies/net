@@ -819,10 +819,7 @@ def guess_gateway_ipv4(ip, cidr):
         dec_cidr    = (0xffffffff << (32 - int(cidr))) & 0xffffffff
         dec_netaddr = dec_ip & dec_cidr
         dec_gateway = dec_netaddr + 1
-        return '.'.join([str(z) for z in
-                    [int(i, 16) for i in
-                        ["".join(x) for x in
-                            zip(*[iter(hex(dec_gateway)[2:])]*2)]]])
+        return ".".join(map(str, [(dec_gateway >> (8*i)) & 0xff for i in range(4)])[::-1])
 
 def do_connect(conn, psk = None):
     become_root()
