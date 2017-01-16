@@ -185,6 +185,20 @@ to `~/.bash_completion`.
 
 It is also a good idea to uninstall resolvconf, as it overwrites the DNS settings.
 
+**udhcpc** is part of the busybox suite, and can be installed, and used,
+on non-Debian systems, which doesn't have a separate package, by:
+* Install busybox with udhcpc compiled in
+* Hard-link busybox as udhcpc
+```
+# ln /bin/busybox /usr/local/bin/udhcpc
+```
+* Install a client script somewhere and make it executable - [udhcpc README](https://udhcp.busybox.net/README.udhcpc)
+* Set _udhcpc-config:_ under _common:_
+```
+common:
+  udhcpc-config: /etc/udhcpc/default.script
+```
+
 ## Contributers
 
 This script was developed by [myself](https://github.com/br0ns) and
