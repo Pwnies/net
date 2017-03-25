@@ -453,6 +453,9 @@ def read_config(reraise = False):
     for name, raw_conn in raw_config.items():
         conn = {}
         for key, val in (raw_conn or {}).items():
+            # Assume UTF-8 encoding
+            if isinstance(val, unicode):
+                val = val.encode('utf8')
             if key == 'wpa':
                 val = parse_wpa_conf(val)
             if key not in known_keys:
