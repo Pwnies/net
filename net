@@ -14,6 +14,24 @@ IGNORED_IFACES = set()
 IGNORED_SSIDS  = set()
 VPN_TMPSTOP_DELAY = 60*5
 
+# Valid config file keys:
+KNOWN_KEYS = (
+  'ssid',
+  'psk',
+  'mac',
+  'dns',
+  'wpa',
+  'hostname',
+  'interface',
+  'addr',
+  'gateway',
+  'vpn',
+  'routes',
+  'udhcpc-config',
+  'ap-addr',
+)
+
+
 # Use these if they are not defined in the configuration file
 FALLBACK_CONFIG = {
     'ignored': {
@@ -448,8 +466,6 @@ def read_config(reraise = False):
     IGNORED_SSIDS = set(re.compile(ign) for ign in IGN.get('ssids') or [])
     VPN = raw_config.pop('vpn', {})
 
-    known_keys = ('ssid', 'psk', 'mac', 'dns', 'wpa', 'hostname', 'interface',
-                  'addr', 'gateway', 'vpn', 'routes', 'udhcpc-config')
     for name, raw_conn in raw_config.items():
         conn = {}
         for key, val in (raw_conn or {}).items():
@@ -458,7 +474,7 @@ def read_config(reraise = False):
                 val = val.encode('utf8')
             if key == 'wpa':
                 val = parse_wpa_conf(val)
-            if key not in known_keys:
+            if key not in KNOWN_KEYS:
                 die('Unknown key: %s' % key)
             if isinstance(val, unicode):
                 # The yaml decoder will convert
@@ -569,9 +585,12 @@ def do_scan():
     run_or_die('ifconfig %s up' % iface)
 
     aps = {}
-    signal_re = re.compile('^([0-9.-]*) dBm$')
+    signal_re = re.compile(r'^([0-9.-]*) dBm$')
+    addr_re = re.compile(r'BSS (([0-9a-f]{2}:?){6})')
 
-    for ap in parse_iw_scan_tree(iface).values():
+    for addr, ap in parse_iw_scan_tree(iface).items():
+        addr = addr_re.match(addr).group(1)
+
         ok = True
         for key in ['SSID', 'signal']:
             if key not in ap or ap[key] == '':
@@ -592,20 +611,25 @@ def do_scan():
             continue
 
         if ssid in aps:
-            aps[ssid][1] = max(aps[ssid][1], quality)
+            aps[ssid][1].append(quality)
+            aps[ssid][2].append(addr)
         else:
-            aps[ssid] = [crypto, quality]
+            aps[ssid] = [crypto, [quality], [addr]]
     if len(aps) == 0:
         print 'Found no access points'
         return
     with open('/tmp/.net-scan', 'w') as fd:
         json.dump(aps.keys(), fd)
     ssid_align = max(map(len, aps.keys()))
-    for ssid, (crypto, quality) in sorted(aps.items()):
-        print '%s %d dBm %s' % (ssid.ljust(ssid_align),
-                              quality,
-                              crypto
-                              )
+    for ssid, (crypto, qualities, addrs) in sorted(aps.items()):
+        ssid = ssid.strip('\x00')
+        print '%s %d dBm %s' % ((ssid or '(hidden)').ljust(ssid_align),
+                                max(qualities),
+                                crypto
+                                )
+        if len(addrs) > 1 or ssid == '':
+            for addr, quality in zip(addrs, qualities):
+                print '  - %s %d dBm' % (addr, quality)
 
 def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None):
     cmd = 'udhcpc -R -i %s' % iface
@@ -824,19 +848,27 @@ def guess_gateway_ipv4(ip, cidr):
         dec_gateway = dec_netaddr + 1
         return ".".join(map(str, [(dec_gateway >> (8*i)) & 0xff for i in range(4)])[::-1])
 
-def do_connect(conn, psk = None):
+def do_connect(conn, psk=None):
     become_root()
     read_config()
+
+    ssid = None
+    ap_addr = None
+
     if conn not in CONFIG:
-        ssid = unescape_c_str(conn)
+        if re.match('^([0-9a-fA-F]:){5}[0-9a-fA-F]$', conn):
+            ap_addr = conn
+        else:
+            ssid = unescape_c_str(conn)
         def get(key, default = None):
             return COMMON.get(key, default)
     else:
-        ssid = CONFIG[conn].get('ssid', None)
+        ssid = CONFIG[conn].get('ssid')
         def get(key, default = None):
             return CONFIG[conn].get(key, default)
 
     psk           = get('psk', psk)
+    ap_addr       = get('ap-addr', ap_addr)
     dns           = get('dns')
     mac           = get('mac')
     wpa           = get('wpa')
@@ -847,11 +879,14 @@ def do_connect(conn, psk = None):
     iface         = get('interface', IFACE)
     routes        = get('routes', [])
     udhcpc_config = get('udhcpc-config')
+
+    is_wifi = any([psk, ssid, wpa, ap_addr])
     if not iface:
-        if psk or ssid or wpa:
+        if is_wifi:
             iface = get_default_wifi_iface()
         else:
             iface = get_default_wired_iface()
+
     stop(iface)
     up = get_ifaces_up()
     if up:
@@ -967,8 +1002,13 @@ def do_connect(conn, psk = None):
     if not wpa:
         if is_wifi_iface(iface):
             print 'Connecting to %s' % ssid
-            escaped_ssid = ''.join("\\x%02x" % ord(c) for c in ssid)
-            run('iwconfig %s key open essid -- "%s"' % (iface, escaped_ssid))
+            cmd = 'iwconfig %s key open ap %s' % (iface, ap_addr or 'any')
+            if ssid:
+                escaped_ssid = ''.join("\\x%02x" % ord(c) for c in ssid)
+                cmd += ' essid -- "%s"' % escaped_ssid
+            else:
+                cmd += ' essid any'
+            run(cmd)
         if not addr:
             print 'Sending DHCP request'
         for cmd in network:
