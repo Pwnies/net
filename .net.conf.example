@@ -43,15 +43,27 @@ office:
     # Local network
     - 192.168.0.0/16 -> 192.168.1.1
 
+crappy-hotel-wifi:
+  ssid: FreeWiFi
+  # Pin access point address to avoid switching between a gazillion equally
+  # crappy ones.  This tends to give a more reliable connection.
+  ap-addr: 00:11:22:33:44:55
+  # Connect to VPN when away from home
+  vpn: myvpn
+
 wired:
   dns: dhcp
+  # The default is to pick a random MAC in one of the Macbook Pro ranges
   mac: default
+  # Don't send a hostname
   hostname:
 
 static:
   interface: eth0
   addr: 192.168.0.42/24
   gateway: 192.168.0.1
+  routes:
+    - default
 
 eduroam:
   ssid: eduroam
