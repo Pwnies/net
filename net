@@ -52,13 +52,21 @@ FALLBACK_CONFIG = {
         },
     }
 
-def die(s = '', exitcode = 1):
-    if s:
-        print s
+def die(msg='', exitcode=1):
+    if msg:
+        print >>sys.stderr, msg
     sys.exit(exitcode)
 
+def log(msg):
+    print >>sys.stderr, msg
+
+def logv(msg):
+    if VERBOSE:
+        log(msg)
+
 def usage():
-    print '''usage: net [<command>] [<args>] [--config=<config>] [--iface=<interface>]
+    die(\
+    '''usage: net [<command>] [<args>] [--config=<config>] [--iface=<interface>]
            [--no-vpn] [--verbose] [-h] [--help]
 
 Shorthands:
@@ -101,8 +109,7 @@ Options:
     Don't connect to a VPN.  Acts as if the connection configuration did not
     have a `vpn` field.
   --verbose:
-    Print every executed command (and the result) to stdout.'''
-    die()
+    Print every executed command (and the result) to stdout.''')
 
 ANSI_ESC = '\x1b[%dm'
 ANSI_RESET = ANSI_ESC % 0
@@ -317,15 +324,50 @@ def get_default_wired_iface():
         return iface
     die('Could not find any wired interfaces')
 
-def get_addrs4(iface):
-    output = run_or_die('ip addr show %s' % iface)
-    return re.findall(r'inet (\d+\.\d+\.\d+\.\d+)', output)
+def normalize_net_or_host(sel):
+    if sel == 'default':
+        sel = '0.0.0.0/0'
+    if '/' in sel:
+        addr, mask = sel.split('/')
+        mask = int(mask)
+    else:
+        addr = sel
+        mask = 32
+    return addr, mask
 
-def get_addr4(iface):
-    addrs = get_addrs4(iface)
+def get_routes():
+    become_root()
+    output = run_or_die('ip -4 route')
+    routes = []
+    for line in output.splitlines():
+        fields = line.split()
+        target = fields[0]
+        attrs = fields[1:]
+        target, netmask = normalize_net_or_host(target)
+        route = {'target': target,
+                 'netmask': netmask,
+        }
+        for i in xrange(0, len(attrs), 2):
+            route[attrs[i]] = attrs[i + 1]
+        routes.append(route)
+    return routes
+
+def get_default_route():
+    for route in get_routes():
+        if route['netmask'] == 0:
+            return route
+
+def get_addrs4(iface, with_netmask=False):
+    output = run_or_die('ip addr show %s' % iface)
+    addrs = re.findall(r'inet (\d+\.\d+\.\d+\.\d+)(?:/(\d+))?', output)
+    if not with_netmask:
+        addrs = [addr[0] for addr in addrs]
+    return addrs
+
+def get_addr4(iface, with_netmask=False):
+    addrs = get_addrs4(iface, with_netmask=with_netmask)
     if addrs:
         return addrs[0]
-    return 'no address'
 
 def get_vpns():
     read_config()
@@ -335,7 +377,8 @@ def bash_complete(xs):
     # XXX: Make this robust
     def quote(s):
         return s.replace(' ', r'\\ ')
-    die('\n'.join(map(quote, xs)), 0)
+    print '\n'.join(map(quote, xs))
+    sys.exit(0)
 
 def parse_args():
     global CONFIG_FILE, IFACE, VERBOSE, NOVPN
@@ -508,22 +551,20 @@ def do_show(k = None):
 def do_list():
     read_config()
     connections = CONFIG.keys()
-    if2c = read_connections()
-    c2if = {}
-    for iface, conn in if2c.items():
-        c2if[conn] = iface
+    c2if = get_connection_to_iface_map()
     width = max(len(c) for c in connections)
     for conn in sorted(connections):
         if conn in c2if:
             iface = c2if[conn]
-            print '%s (%s: %s)' % (conn.ljust(width), iface, get_addr4(iface))
+            print '%s (%s: %s)' % (conn.ljust(width), iface,
+                                   get_addr4(iface) or 'no address')
             del c2if[conn]
         else:
             print conn
     if c2if:
         print
         for c, i in c2if.items():
-            print '%s: "%s", %s' % (i, c, get_addr4(i))
+            print '%s: "%s", %s' % (i, c, get_addr4(i) or 'no address')
 
 def unescape_c_str(data):
     return re.sub(
@@ -727,6 +768,78 @@ def tmp_stop_vpn(name, delay):
     # Restart VPN
     start_vpn(name)
 
+def add_route_cmd(route, default_gw=None):
+    # Format:
+    #   <dst>[/prefix] [-> {<addr>,<interface>,<connection>)]
+    if not route:
+        die('no route given')
+
+    fields = route.split()
+    dst = fields[0]
+    if len(fields) == 1:
+        gw = default_gw
+
+    elif len(fields) == 3:
+        if fields[1] != '->':
+            die('Bad route format: %s' % route)
+        sel = fields[2]
+
+        # Determine gateway from (in this order):
+        #  - Concrete address
+        #  - Interface
+        #  - Interface of active connection
+        #  - Configured connection:
+        #    - Gateway
+        #    - Address
+        #    - Interface
+        def get_gw(sel):
+            if validate_ipv4(sel):
+                return sel
+
+            def from_addr(addr, netmask):
+                if not netmask:
+                    logv('(Guessed netmask: 255.255.255.0)')
+                    netmask = '24'
+                return guess_gateway_ipv4(addr, netmask)
+
+            def from_iface(iface):
+                return from_addr(*get_addr4(sel, with_netmask=True))
+
+            ifaces = get_ifaces_up()
+
+            if sel in ifaces:
+                return from_iface(sel)
+
+            c2if = get_connection_to_iface_map()
+            if sel in c2if:
+                return from_iface(c2if[sel])
+
+            read_config()
+            conf = CONFIG.get(sel)
+            if conf:
+                gw = conf.get('gateway')
+                if gw:
+                    return gw
+
+                addr = conf.get('addr')
+                if addr:
+                    return from_addr(
+                        re.findall(r'inet (\d+\.\d+\.\d+\.\d+)(?:/(\d+))?',
+                                   addr)
+                    )
+
+                iface = conf.get('interface')
+                if iface:
+                    return from_iface(iface)
+
+        gw = get_gw(sel)
+        if not gw:
+            die('No gateway matches "%s"' % sel)
+
+    addr, netmask = normalize_net_or_host(dst)
+    cmd = 'ip route add %s/%d via %s' % (addr, netmask, gw)
+    return cmd
+
 def finalize_hostname(hostname):
     names = ('Jonas', 'Noah', 'Liam', 'Jacob', 'Mason', 'William', 'Ethan',
              'Michael', 'Alexander', 'Jayden', 'Daniel', 'Elijah', 'Aiden',
@@ -828,6 +941,13 @@ def del_connection(iface):
     if iface in conns:
         del conns[iface]
     write_connections(conns)
+
+def get_connection_to_iface_map():
+    if2c = read_connections()
+    c2if = {}
+    for iface, conn in if2c.items():
+        c2if[conn] = iface
+    return c2if
 
 def validate_ipv4(address):
     octets = address.split('.')
@@ -945,55 +1065,49 @@ def do_connect(conn, psk=None):
             ip, netmask = re.findall(r'(\d+\.\d+\.\d+\.\d+)(/\d+)?', addr)[0]
         except:
             die('Invalid address: %s' % addr)
+
         if not validate_ipv4(ip):
             die('Invalid address: %s' % ip)
+
         if not netmask:
-            print '(Guessed netmask: 255.255.255.0)'
+            logv('(Guessed netmask: 255.255.255.0)')
             netmask = '/24'
+
         if not gateway:
             gateway = guess_gateway_ipv4(ip, netmask[1:])
-            print '(Guessed gateway: %s)' % gateway
-        network = [
-            'ip addr add %s%s dev %s' % (ip, netmask, iface),
-            'ip route add default via %s dev %s' % (gateway, iface),
-            'ip link set %s up' % iface,
-            ]
+            logv('(Guessed gateway: %s)' % gateway)
 
-        if gateway == 'none':
-            network.pop(1)
+        network = ['ip addr add %s%s dev %s' % (ip, netmask, iface)]
+
+        default_route = get_default_route()
+        # Add default route if none exists
+        add_default = True
+        if default_route:
+            if 'default' in routes or \
+               yesno('Override default route via %s dev %s?' % \
+                     (default_route['via'], default_route['dev']),
+                     False):
+                logv('Flusing default route via %s dev %s' % \
+                     (default_route['via'], default_route['dev']))
+                run_or_die('ip route flush default via %s' % \
+                           default_route['via'])
+            else:
+                add_default = False
+
+        if gateway != 'none' and add_default and 'default' not in routes:
+            network.append('ip route add default via %s dev %s' % \
+                           (gateway, iface)
+            )
+
+        network.append('ip link set %s up' % iface)
+
     else:
         network = [start_dhcp_cmd(iface, hostname, udhcpc_config)]
 
+    # Additional routes
     for route in routes:
-        route = route.split()
-        route_ = ' '.join(route) # Copy so we can compare against rewritten route below
-        if route[0] not in ('add', 'del'):
-            route.insert(0, 'add')
-        if route[1] in ('net', 'host'):
-            route[1] = '-' + route[1]
-        if route[1] not in ('-net', '-host'):
-            ip = route[1]
-            if '/' in ip or 'netmask' in route:
-                route.insert(1, '-net')
-            else:
-                route.insert(1, '-host')
-        ip = route[2]
-        if '/' in ip:
-            net, mask = ip.split('/')
-            mask = (1 << int(mask)) - 1
-            mask = '%d.%d.%d.%d' % \
-                   (mask       & 0xff,
-                    mask >>  8 & 0xff,
-                    mask >> 16 & 0xff,
-                    mask >> 24 & 0xff)
-            route[2] = net
-            route.insert(3, 'netmask')
-            route.insert(4, mask)
-        route = ' '.join('gw' if f == '->' else f for f in route)
-        if VERBOSE and route != route_:
-            print 'Rewrote route "%s" to "%s"' % (route_, route)
-
-        network += ['route ' + route]
+        logv('Adding route: %s' % route)
+        network.append(add_route_cmd(route, default_gw=gateway))
 
     # Run configuration
     set_mac(iface, mac)
@@ -1150,12 +1264,35 @@ def do_dns(*dns):
 
 def do_stop(*args):
     read_config()
+
     if IFACE and args:
         die('Cannot use --iface')
+
     if IFACE:
         ifaces = [IFACE]
+
+    elif args:
+        ifaces = []
+        all_ifaces = get_ifaces()
+        c2if = get_connection_to_iface_map()
+
+        def get_iface(arg):
+            if arg in all_ifaces:
+                return arg
+            if arg in c2if:
+                return c2if[arg]
+            if arg in CONFIG:
+                conf = CONFIG[arg]
+                if 'interface' in conf:
+                    return conf['interface']
+
+        for arg in args:
+            iface = get_iface(arg)
+            if not iface:
+                die('No interface matches "%s"' % arg)
+            ifaces.append(iface)
     else:
-        ifaces = args or get_ifaces_up()
+        ifaces = get_ifaces_up()
 
     if not ifaces:
         die('No interfaces are up')
