@@ -1236,7 +1236,8 @@ def finalize_mac(iface, mac):
 def set_mac(iface, mac):
     mac = finalize_mac(iface, mac)
     become_root()
-    run_or_die('ip link set dev %s address %s' % (iface, mac))
+    run_or_die('ip link set dev %s down' % iface)
+    run_or_die('ip link set dev %s address %s up' % (iface, mac))
 
 def do_mac(mac = None):
     if not IFACE:
