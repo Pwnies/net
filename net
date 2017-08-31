@@ -623,7 +623,7 @@ def do_scan():
     iface = IFACE or get_wifi_iface_up() or get_default_wifi_iface()
 
     # Make sure iface is up
-    run_or_die('ifconfig %s up' % iface)
+    run_or_die('ip link set dev %s up' % iface)
 
     aps = {}
     signal_re = re.compile(r'^([0-9.-]*) dBm$')
@@ -903,8 +903,8 @@ def stop(iface):
            '/tmp/wpa_supplicant.%s.conf' % iface)
 
     stop_dhcp(iface)
-    run("ip addr flush dev %s" % iface)
-    run_or_die("ifconfig %s down" % iface)
+    run('ip addr flush dev %s' % iface)
+    run_or_die('ip link set dev %s down' % iface)
     del_connection(iface)
 
 def set_dns(dns, append=False):
@@ -1236,8 +1236,7 @@ def finalize_mac(iface, mac):
 def set_mac(iface, mac):
     mac = finalize_mac(iface, mac)
     become_root()
-    run_or_die('ifconfig %s down hw ether %s' % (iface, mac))
-    run_or_die('ifconfig %s up' % iface)
+    run_or_die('ip link set dev %s address %s' % (iface, mac))
 
 def do_mac(mac = None):
     if not IFACE:

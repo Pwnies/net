@@ -188,7 +188,6 @@ to `~/.bash_completion`.
 |------------------------|-------------------------------|
 | `/bin/ip`              | `iproute2`                    |
 | `/sbin/ethtool`        | `ethtool`                     |
-| `/sbin/ifconfig`       | `net-tools`                   |
 | `/sbin/iw`             | `iw`                          |
 | `/sbin/iwconfig`       | `wireless-tools`              |
 | `/sbin/udhcpc`         | `udhcpc`                      |
