@@ -111,7 +111,6 @@ to `~/.bash_completion`.
 | `/sbin/udhcpc`         | `udhcpc`                      |
 | `/sbin/wpa_cli`        | `wpasupplicant`               |
 | `/sbin/wpa_supplicant` | `wpasupplicant`               |
-| `/usr/bin/awk`         | `mawk` / `gawk`               |
 | `/usr/bin/chattr`      | `e2fsprogs`                   |
 | `/usr/bin/expand`      | `coreutils`                   |
 | `/usr/bin/pkill`       | `procps`                      |
