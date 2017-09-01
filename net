@@ -1113,21 +1113,23 @@ def do_connect(conn, psk=None):
     set_mac(iface, mac)
     set_dns(dns)
 
-    if not wpa:
-        if is_wifi_iface(iface):
-            print 'Connecting to %s' % ssid
-            cmd = 'iwconfig %s key open ap %s' % (iface, ap_addr or 'any')
-            if ssid:
-                escaped_ssid = ''.join("\\x%02x" % ord(c) for c in ssid)
-                cmd += ' essid -- "%s"' % escaped_ssid
-            else:
-                cmd += ' essid any'
-            run(cmd)
+    if not wpa and not is_wifi_iface(iface):
         if not addr:
             print 'Sending DHCP request'
         for cmd in network:
             run_or_die(cmd)
     else:
+        if not wpa:
+            wpa = {'network': {'key_mgmt': 'NONE'}}
+            ssid = conn
+            wpa['network']['ssid'] = ssid.encode('hex')
+            wpa['network'].setdefault('scan_ssid', '0')
+            wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
+            wpa['ctrl_interface_group'] = '0'
+            wpa_conf = '/tmp/wpa_supplicant.%s.conf' % iface
+            wpa_log = '/tmp/wpa_supplicant.%s.log' % iface
+            write_root_file(wpa_conf, 0o600, write_wpa_conf(wpa))
+
         wpa_cli_sh  = '/tmp/wpa_cli.%s.sh' % iface
         wpa_cli_log = '/tmp/wpa_cli.%s.log' % iface
         beg_marker = '[[[BEG]]]'
