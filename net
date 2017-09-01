@@ -295,7 +295,7 @@ def is_wifi_iface(iface):
 
 def get_wifi_ifaces():
     return [iface for iface in
-            run_or_die('for i in `ls /sys/class/net/`; do if [ -e /sys/class/net/$i/wireless ]; then echo $i; fi; done').strip().split('\n')
+            run_or_die('ls -d /sys/class/net/*/wireless 2>/dev/null | cut -d/ -f5').strip().split('\n')
             if not ignore(iface)]
 
 def get_wifi_iface_up():

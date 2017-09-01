@@ -194,6 +194,7 @@ to `~/.bash_completion`.
 | `/sbin/wpa_supplicant` | `wpasupplicant`               |
 | `/usr/bin/chattr`      | `e2fsprogs`                   |
 | `/usr/bin/expand`      | `coreutils`                   |
+| `/usr/bin/cut`         | `coreutils`                   |
 | `/usr/bin/pkill`       | `procps`                      |
 | `/usr/sbin/openvpn`    | `openvpn`                     |
 | Python package `yaml`  | `python-yaml` / PyPI `pyyaml` |
