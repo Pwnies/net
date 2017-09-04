@@ -1113,15 +1113,19 @@ def do_connect(conn, psk=None):
     set_mac(iface, mac)
     set_dns(dns)
 
-    if not wpa and not is_wifi_iface(iface):
+    # If wired
+    if not is_wifi_iface(iface):
+        if is_wifi:
+            die('WiFi options set on wired interface!')
         if not addr:
             print 'Sending DHCP request'
         for cmd in network:
             run_or_die(cmd)
+    # Else WiFi
     else:
+        # If Open WiFi with fallthrough--always use wpa_supplicant
         if not wpa:
             wpa = {'network': {'key_mgmt': 'NONE'}}
-            ssid = conn
             wpa['network']['ssid'] = ssid.encode('hex')
             wpa['network'].setdefault('scan_ssid', '0')
             wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
