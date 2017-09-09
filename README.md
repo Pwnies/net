@@ -88,24 +88,37 @@ ignored:
   - vmnet[0-9]+
 
 vpn:
-  myvpn: |
-    client
-    dev tun
+  myvpn:
+    type: openvpn
+    config: |
+      client
+      dev tun
 
-    proto udp
-    remote my-server-1 1194
+      proto udp
+      remote my-server-1 1194
 
-    resolv-retry infinite
-    nobind
-    persist-key
-    persist-tun
+      resolv-retry infinite
+      nobind
+      persist-key
+      persist-tun
 
-    ca ca.crt
-    cert client.crt
-    key client.key
+      ca ca.crt
+      cert client.crt
+      key client.key
 
-    comp-lzo
-    verb 3
+      comp-lzo
+      verb 3
+  myvpn2:
+    type: wireguard
+    config: |
+      [Interface]
+      ListenPort = 51820
+      PrivateKey = QLa1x8ttCEl23cCIGpndDv9CIZ7Al7G7Kuj9yG0PIVk=
+
+      [Peer]
+      Endpoint = 198.51.100.1:51820
+      PublicKey = cPybMYBdfrj0wp+FlvWoFfL2fI1kc7dhtKB+cqvNPCA=
+      AllowedIPs = 0.0.0.0/0
 
 office:
   vpn: myvpn
@@ -184,22 +197,21 @@ to `~/.bash_completion`.
 
 ## Dependencies
 
-| Dependency             | Debian package                |
-|------------------------|-------------------------------|
-| `/bin/ip`              | `iproute2`                    |
-| `/sbin/ethtool`        | `ethtool`                     |
-| `/sbin/ifconfig`       | `net-tools`                   |
-| `/sbin/iw`             | `iw`                          |
-| `/sbin/iwconfig`       | `wireless-tools`              |
-| `/sbin/udhcpc`         | `udhcpc`                      |
-| `/sbin/wpa_cli`        | `wpasupplicant`               |
-| `/sbin/wpa_supplicant` | `wpasupplicant`               |
-| `/usr/bin/awk`         | `mawk` / `gawk`               |
-| `/usr/bin/chattr`      | `e2fsprogs`                   |
-| `/usr/bin/expand`      | `coreutils`                   |
-| `/usr/bin/pkill`       | `procps`                      |
-| `/usr/sbin/openvpn`    | `openvpn`                     |
-| Python package `yaml`  | `python-yaml` / PyPI `pyyaml` |
+| Dependency             | Debian package                       |
+|------------------------|--------------------------------------|
+| `/bin/ip`              | `iproute2`                           |
+| `/sbin/ethtool`        | `ethtool`                            |
+| `/sbin/iw`             | `iw`                                 |
+| `/sbin/udhcpc`         | `udhcpc`                             |
+| `/sbin/wpa_cli`        | `wpasupplicant`                      |
+| `/sbin/wpa_supplicant` | `wpasupplicant`                      |
+| `/usr/bin/chattr`      | `e2fsprogs`                          |
+| `/usr/bin/expand`      | `coreutils`                          |
+| `/usr/bin/cut`         | `coreutils`                          |
+| `/usr/bin/pkill`       | `procps`                             |
+| `/usr/sbin/openvpn`    | `openvpn`                            |
+| `/usr/bin/wg`          | `https://www.wireguard.com/install/` |
+| Python package `yaml`  | `python-yaml` / PyPI `pyyaml`        |
 
 It is also a good idea to uninstall resolvconf, as it overwrites the DNS settings.
 

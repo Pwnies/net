@@ -102,22 +102,21 @@ to `~/.bash_completion`.
 
 ## Dependencies
 
-| Dependency             | Debian package                |
-|------------------------|-------------------------------|
-| `/bin/ip`              | `iproute2`                    |
-| `/sbin/ethtool`        | `ethtool`                     |
-| `/sbin/ifconfig`       | `net-tools`                   |
-| `/sbin/iw`             | `iw`                          |
-| `/sbin/iwconfig`       | `wireless-tools`              |
-| `/sbin/udhcpc`         | `udhcpc`                      |
-| `/sbin/wpa_cli`        | `wpasupplicant`               |
-| `/sbin/wpa_supplicant` | `wpasupplicant`               |
-| `/usr/bin/awk`         | `mawk` / `gawk`               |
-| `/usr/bin/chattr`      | `e2fsprogs`                   |
-| `/usr/bin/expand`      | `coreutils`                   |
-| `/usr/bin/pkill`       | `procps`                      |
-| `/usr/sbin/openvpn`    | `openvpn`                     |
-| Python package `yaml`  | `python-yaml` / PyPI `pyyaml` |
+| Dependency             | Debian package                       |
+|------------------------|--------------------------------------|
+| `/bin/ip`              | `iproute2`                           |
+| `/sbin/ethtool`        | `ethtool`                            |
+| `/sbin/iw`             | `iw`                                 |
+| `/sbin/udhcpc`         | `udhcpc`                             |
+| `/sbin/wpa_cli`        | `wpasupplicant`                      |
+| `/sbin/wpa_supplicant` | `wpasupplicant`                      |
+| `/usr/bin/chattr`      | `e2fsprogs`                          |
+| `/usr/bin/expand`      | `coreutils`                          |
+| `/usr/bin/cut`         | `coreutils`                          |
+| `/usr/bin/pkill`       | `procps`                             |
+| `/usr/sbin/openvpn`    | `openvpn`                            |
+| `/usr/bin/wg`          | `https://www.wireguard.com/install/` |
+| Python package `yaml`  | `python-yaml` / PyPI `pyyaml`        |
 
 It is also a good idea to uninstall resolvconf, as it overwrites the DNS settings.
 

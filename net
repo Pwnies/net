@@ -697,52 +697,96 @@ def renew_dhcp_cmd():
 def renew_dhcp():
     run(renew_dhcp_cmd())
 
-def start_vpn_cmd(name):
+def start_openvpn_cmd(name):
     return 'openvpn --config /tmp/%s.ovpn --log /tmp/%s.ovpn.log' % \
         (name, name)
 
-def start_vpn(name):
-    try:
-        conf = VPN[name]
-    except KeyError:
-        die('No such VPN: %s' % name)
+def create_wg_iface(iface = 'wg1337', internip = '192.168.255.1/24'):
+    become_root()
+    run_or_die('ip link add dev %s type wireguard' % iface)
+    run_or_die('ip address add dev %s %s' % (iface, internip))
 
-    path_conf = '/tmp/%s.ovpn' % name
-    path_log = path_conf + '.log'
+def destroy_wg_iface(iface = 'wg1337'):
+    become_root()
+    run_or_die('ip link set dev %s down' % iface)
+    run_or_die('ip link del dev %s' % iface)
+
+def wg_setconf(name, iface = 'wg1337'):
+    become_root()
+    run_or_die('ip link set dev %s down' % iface)
+    conf = VPN[name]['config']
+    path_conf = '/tmp/%s-wg.conf' % name
     write_root_file(path_conf, 0o600, conf)
-    rm(path_log)
-    run_daemon(start_vpn_cmd(name).split())
-
-    # Wait for OpenVPN to start
-    while True:
-        try:
-            fd = open(path_log)
-            break
-        except IOError:
-            time.sleep(0.1)
-
-    # Now we can remove the config file
+    run_or_die('wg setconf %s %s' % (iface, path_conf))
     rm(path_conf)
 
-    # Wait for the connection to be established
-    line = ''
-    marker = 'Initialization Sequence Completed'
-    while True:
-        s = fd.readline()
-        line += s
-        if not s or s[-1] != '\n':
-            time.sleep(0.05)
-            continue
-        line = line.rstrip()
-        if VERBOSE:
-            print line
-        if marker in line:
-            break
+# Fix wireguard interface and internal IP handling
+def start_vpn(name):
+    try:
+        type = VPN[name]['type']
+        conf = VPN[name]['config']
+    except (KeyError, TypeError):
+        die('%s is misconfigured - check .net.conf.example' % name)
+
+    if type == 'openvpn':
+        path_conf = '/tmp/%s.ovpn' % name
+        path_log = path_conf + '.log'
+        write_root_file(path_conf, 0o600, conf)
+        rm(path_log)
+        run_daemon(start_openvpn_cmd(name).split())
+
+        # Wait for OpenVPN to start
+        while True:
+            try:
+                fd = open(path_log)
+                break
+            except IOError:
+                time.sleep(0.1)
+
+        # Now we can remove the config file
+        rm(path_conf)
+
+        # Wait for the connection to be established
         line = ''
+        marker = 'Initialization Sequence Completed'
+        while True:
+            s = fd.readline()
+            line += s
+            if not s or s[-1] != '\n':
+                time.sleep(0.05)
+                continue
+            line = line.rstrip()
+            if VERBOSE:
+                print line
+            if marker in line:
+                break
+            line = ''
+
+    elif type == 'wireguard':
+        create_wg_iface()
+        wg_setconf(name)
+        run_or_die('ip link set dev wg1337 up')
+
+    else:
+        die('Unknown VPN type selected for: %s\
+\nSupported VPN types: openvpn, wireguard' % name)
 
 def stop_vpn(name):
-    pattern = start_vpn_cmd(name)
-    run('pkill -9 -f "^%s"' % pattern)
+    try:
+        type = VPN[name]['type']
+    except (KeyError, TypeError):
+        die('%s is misconfigured - check .net.conf.example' % name)
+
+    if type == 'openvpn':
+        pattern = start_openvpn_cmd(name)
+        run('pkill -9 -f "^%s"' % pattern)
+
+    elif type == 'wireguard':
+        destroy_wg_iface()
+
+    else:
+        die('Unknown VPN type selected for: %s\
+\nSupported VPN types: openvpn, wireguard' % name)
 
 def tmp_stop_vpn(name, delay):
     stop_vpn(name)
