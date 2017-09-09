@@ -110,6 +110,8 @@ vpn:
       verb 3
   myvpn2:
     type: wireguard
+    address: 10.0.0.1/8
+    interface: wg0
     config: |
       [Interface]
       ListenPort = 51820

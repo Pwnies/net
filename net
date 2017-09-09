@@ -701,15 +701,15 @@ def start_openvpn_cmd(name):
     return 'openvpn --config /tmp/%s.ovpn --log /tmp/%s.ovpn.log' % \
         (name, name)
 
-def create_wg_iface(iface = 'wg1337', internip = '192.168.255.1/24'):
+def create_wg_iface(iface = 'wg1337', addr = '192.168.255.1/24'):
     become_root()
     run_or_die('ip link add dev %s type wireguard' % iface)
-    run_or_die('ip address add dev %s %s' % (iface, internip))
+    run_or_die('ip address add dev %s %s' % (iface, addr))
 
 def destroy_wg_iface(iface = 'wg1337'):
     become_root()
-    run_or_die('ip link set dev %s down' % iface)
-    run_or_die('ip link del dev %s' % iface)
+    run('ip link set dev %s down' % iface)
+    run('ip link del dev %s' % iface)
 
 def wg_setconf(name, iface = 'wg1337'):
     become_root()
@@ -720,7 +720,6 @@ def wg_setconf(name, iface = 'wg1337'):
     run_or_die('wg setconf %s %s' % (iface, path_conf))
     rm(path_conf)
 
-# Fix wireguard interface and internal IP handling
 def start_vpn(name):
     try:
         type = VPN[name]['type']
@@ -763,9 +762,30 @@ def start_vpn(name):
             line = ''
 
     elif type == 'wireguard':
-        create_wg_iface()
-        wg_setconf(name)
-        run_or_die('ip link set dev wg1337 up')
+        internaddr = ''
+        ifacename = ''
+        try:
+            internaddr = VPN[name]['address']
+            ifacename = VPN[name]['interface']
+        except:
+            pass
+
+        if internaddr and ifacename:
+            create_wg_iface(iface = ifacename, addr = internaddr)
+            wg_setconf(name, iface = ifacename)
+            run_or_die('ip link set dev %s up' % ifacename)
+        elif internaddr:
+            create_wg_iface(addr = internaddr)
+            wg_setconf(name)
+            run_or_die('ip link set dev wg1337 up')
+        elif ifacename:
+            create_wg_iface(iface = ifacename)
+            wg_setconf(name, iface = ifacename)
+            run_or_die('ip link set dev %s up' % ifacename)
+        else:
+            create_wg_iface()
+            wg_setconf(name)
+            run_or_die('ip link set dev wg1337 up')
 
     else:
         die('Unknown VPN type selected for: %s\
@@ -782,7 +802,11 @@ def stop_vpn(name):
         run('pkill -9 -f "^%s"' % pattern)
 
     elif type == 'wireguard':
-        destroy_wg_iface()
+        try:
+            if VPN[name]['interface']:
+                destroy_wg_iface(iface = VPN[name]['interface'])
+        except KeyError:
+           destroy_wg_iface()
 
     else:
         die('Unknown VPN type selected for: %s\
