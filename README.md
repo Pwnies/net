@@ -68,11 +68,10 @@ The file `~/.net.conf` holds a list of configured networks (in YAML).  An
 example is included in `.net.conf.example`:
 
 ```
-common:
-  mac: 00:??:??:??:??:??
+common: # Default settings
+  mac: 00:??:??:??:??:?? # Make last 5 bytes random
   dns: 8.8.8.8, 8.8.4.4
-  hostname: <name>s-MacBook-Pro
-  # Always connect to VPN
+  hostname: <name>s-MacBook-Pro # <name> is a table of generic names
   vpn: myvpn
 
 ignored:
@@ -80,12 +79,9 @@ ignored:
   - br[0-9]+
   - tap[0-9]+
   - tun[0-9]+
-  # Docker
-  - docker[0-9]+
-  # Virtualbox
-  - vboxnet[0-9]+
-  # VMWare
-  - vmnet[0-9]+
+  - docker[0-9]+ # Docker
+  - vboxnet[0-9]+ # Virtualbox
+  - vmnet[0-9]+ # VMWare
 
 vpn:
   myvpn: |
@@ -110,23 +106,19 @@ vpn:
 office:
   vpn: myvpn
   routes:
-    # Local network
-    - 192.168.0.0/16 -> 192.168.1.1
+    - 192.168.0.0/16 -> 192.168.1.1 # Local network
 
 crappy-hotel-wifi:
   ssid: FreeWiFi
   # Pin access point address to avoid switching between a gazillion equally
   # crappy ones.  This tends to give a more reliable connection.
   ap-addr: 00:11:22:33:44:55
-  # Connect to VPN when away from home
-  vpn: myvpn
+  vpn: myvpn # Connect to VPN when away from home
 
 wired:
   dns: dhcp
-  # The default is to pick a random MAC in one of the Macbook Pro ranges
-  mac: default
-  # Don't send a hostname
-  hostname:
+  mac: default # The default is to pick a random Macbook Pro MAC address
+  hostname: # Do not send a hostname
 
 static:
   interface: eth0
@@ -139,18 +131,15 @@ eduroam:
   ssid: eduroam
   wpa: |
     network={
-      identity="YOUR-ID-HERE@ku.dk"
+      identity="YOUR-ID-HERE"
       password="YOUR-PASSPHRASE-HERE"
       key_mgmt=WPA-EAP
-      pairwise=TKIP
-      eap=TTLS
-      phase2="auth=MSCHAPv2"
     }
 
 my-home-network:
   ssid: SSID-HERE
   psk: PASSPHRASE-HERE
-  vpn: # Empty: don't connect to VPN when at home
+  vpn: # Do not connect to VPN when at home
 ```
 
 Using this config file you can connect to `my-home-network` using the command:
