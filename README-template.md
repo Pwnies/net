@@ -34,6 +34,8 @@ Commands:
     is given, one is chosen at random.
   vpn <name> [stop]:
     Connect to, or disconnect from, VPN.
+  genkey:
+    Generate a WireGuard key pair.
   show [<connection>]:
     Show configuration options.  If no connection is specified, all are show.
   help:
