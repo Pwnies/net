@@ -433,7 +433,7 @@ def parse_args():
     if len(args) == 0:
         return 'list', []
 
-    if args[0] in ('list', 'scan', 'connect', 'mac', 'dns', 'stop', 'show', 'vpn'):
+    if args[0] in ('list', 'scan', 'connect', 'mac', 'dns', 'stop', 'show', 'vpn', 'genkey'):
         cmd = args.pop(0)
     else:
         cmd = 'connect'
@@ -1394,6 +1394,12 @@ def do_vpn(vpn, cmd='start', delay=VPN_TMPSTOP_DELAY):
     else:
         die('Unknown VPN command: %s' % cmd)
 
+def do_genkey():
+    pk = run('wg genkey').strip()
+    pubkey = run_or_die('echo %s | wg pubkey' % pk).strip()
+    print '======================WireGuard keys======================'
+    print 'Private key:  ' + pk + '\n Public key:  ' + pubkey
+
 def main():
     cmd, args = parse_args()
     if   cmd == 'list':
@@ -1424,6 +1430,10 @@ def main():
         if len(args) > 1:
             die('Command "show" takes one or no arguments')
         do_show(*args)
+    elif cmd == 'genkey':
+        if len(args) > 0:
+            die('Command "genkey" takes no arguments')
+        do_genkey()
 
 if __name__ == '__main__':
     try:
