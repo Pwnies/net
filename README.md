@@ -114,6 +114,7 @@ vpn:
     type: wireguard
     address: 10.0.0.1/8
     interface: wg0
+    gateway: True
     config: |
       [Interface]
       ListenPort = 51820

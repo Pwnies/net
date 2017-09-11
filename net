@@ -722,7 +722,29 @@ def wg_setconf(name, iface = 'wg1337'):
     run_or_die('wg setconf %s %s' % (iface, path_conf))
     rm(path_conf)
 
+def set_wg_dgw(name):
+    cfg_ep = [x for x in VPN[name]['config'].split('\n') if 'Endpoint' in x or 'endpoint' in x]
+
+    if not cfg_ep:
+        stop_vpn(name)
+        die('No endpoint set for VPN: %s' % name)
+
+    dgwaddr = [x for x in run_or_die('ip route show').split('\n') if 'default' in x]
+
+    endpoint = ''.join(re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(cfg_ep)))
+    dgwaddress = ''.join(re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(dgwaddr)))
+
+    become_root()
+    run('ip route del 0.0.0.0/1 dev %s' % VPN[name]['interface'])
+    run('ip route del 128.0.0.0/1 dev %s' % VPN[name]['interface'])
+    run('ip route del %s/32 via %s' % (endpoint, dgwaddress))
+    run_or_die('ip route add 0.0.0.0/1 dev %s' % VPN[name]['interface'])
+    run_or_die('ip route add 128.0.0.0/1 dev %s' % VPN[name]['interface'])
+    run_or_die('ip route add %s/32 via %s' % (endpoint, dgwaddress))
+
 def start_vpn(name):
+    print 'Starting VPN (%s)' % name
+
     try:
         type = VPN[name]['type']
         conf = VPN[name]['config']
@@ -766,9 +788,12 @@ def start_vpn(name):
     elif type == 'wireguard':
         internaddr = ''
         ifacename = ''
+        d_gateway = False
+
         try:
             internaddr = VPN[name]['address']
             ifacename = VPN[name]['interface']
+            d_gateway = VPN[name]['gateway']
         except:
             pass
 
@@ -789,11 +814,18 @@ def start_vpn(name):
             wg_setconf(name)
             run_or_die('ip link set dev wg1337 up')
 
+        if d_gateway == True:
+            set_wg_dgw(name)
+
     else:
         die('Unknown VPN type selected for: %s\
 \nSupported VPN types: openvpn, wireguard' % name)
 
+    print 'DONE'
+
 def stop_vpn(name):
+    print 'Stopping VPN (%s)' % name
+
     try:
         type = VPN[name]['type']
     except (KeyError, TypeError):
@@ -1379,11 +1411,8 @@ def do_vpn(vpn, cmd='start', delay=VPN_TMPSTOP_DELAY):
     become_root()
     if cmd == 'start':
         read_config()
-        print 'Starting VPN (%s)' % vpn
         start_vpn(vpn)
-        print 'DONE'
     elif cmd == 'stop':
-        print 'Stopping VPN (%s)' % vpn
         stop_vpn(vpn)
     elif cmd == 'tmpstop':
         read_config()
