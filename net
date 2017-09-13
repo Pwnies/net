@@ -93,6 +93,8 @@ Commands:
   vpn <name> [stop|tmpstop [delay]]:
     Connect to, or disconnect (temporarily [default = 5m] in case of tmpstop)
     from, VPN.
+  genkey:
+    Generate a WireGuard key pair.
   show [<connection>]:
     Show configuration options.  If no connection is specified, all are show.
   help:
@@ -433,7 +435,7 @@ def parse_args():
     if len(args) == 0:
         return 'list', []
 
-    if args[0] in ('list', 'scan', 'connect', 'mac', 'dns', 'stop', 'show', 'vpn'):
+    if args[0] in ('list', 'scan', 'connect', 'mac', 'dns', 'stop', 'show', 'vpn', 'genkey'):
         cmd = args.pop(0)
     else:
         cmd = 'connect'
@@ -697,52 +699,152 @@ def renew_dhcp_cmd():
 def renew_dhcp():
     run(renew_dhcp_cmd())
 
-def start_vpn_cmd(name):
+def start_openvpn_cmd(name):
     return 'openvpn --config /tmp/%s.ovpn --log /tmp/%s.ovpn.log' % \
         (name, name)
 
-def start_vpn(name):
-    try:
-        conf = VPN[name]
-    except KeyError:
-        die('No such VPN: %s' % name)
+def create_wg_iface(iface = 'wg1337', addr = '192.168.255.1/24'):
+    become_root()
+    run_or_die('ip link add dev %s type wireguard' % iface)
+    run_or_die('ip address add dev %s %s' % (iface, addr))
 
-    path_conf = '/tmp/%s.ovpn' % name
-    path_log = path_conf + '.log'
+def destroy_wg_iface(iface = 'wg1337'):
+    become_root()
+    run('ip link set dev %s down' % iface)
+    run('ip link del dev %s' % iface)
+
+def wg_setconf(name, iface = 'wg1337'):
+    become_root()
+    run_or_die('ip link set dev %s down' % iface)
+    conf = VPN[name]['config']
+    path_conf = '/tmp/%s-wg.conf' % name
     write_root_file(path_conf, 0o600, conf)
-    rm(path_log)
-    run_daemon(start_vpn_cmd(name).split())
-
-    # Wait for OpenVPN to start
-    while True:
-        try:
-            fd = open(path_log)
-            break
-        except IOError:
-            time.sleep(0.1)
-
-    # Now we can remove the config file
+    run_or_die('wg setconf %s %s' % (iface, path_conf))
     rm(path_conf)
 
-    # Wait for the connection to be established
-    line = ''
-    marker = 'Initialization Sequence Completed'
-    while True:
-        s = fd.readline()
-        line += s
-        if not s or s[-1] != '\n':
-            time.sleep(0.05)
-            continue
-        line = line.rstrip()
-        if VERBOSE:
-            print line
-        if marker in line:
-            break
+def set_wg_dgw(name):
+    cfg_ep = [x for x in VPN[name]['config'].split('\n') if 'Endpoint' in x or 'endpoint' in x]
+
+    if not cfg_ep:
+        stop_vpn(name)
+        die('No endpoint set for VPN: %s' % name)
+
+    dgwaddr = [x for x in run_or_die('ip route show').split('\n') if 'default' in x]
+
+    endpoint = ''.join(re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(cfg_ep)))
+    dgwaddress = ''.join(re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(dgwaddr)))
+
+    become_root()
+    run('ip route del 0.0.0.0/1 dev %s' % VPN[name]['interface'])
+    run('ip route del 128.0.0.0/1 dev %s' % VPN[name]['interface'])
+    run('ip route del %s/32 via %s' % (endpoint, dgwaddress))
+    run_or_die('ip route add 0.0.0.0/1 dev %s' % VPN[name]['interface'])
+    run_or_die('ip route add 128.0.0.0/1 dev %s' % VPN[name]['interface'])
+    run_or_die('ip route add %s/32 via %s' % (endpoint, dgwaddress))
+
+def start_vpn(name):
+    print 'Starting VPN (%s)' % name
+
+    try:
+        type = VPN[name]['type']
+        conf = VPN[name]['config']
+    except (KeyError, TypeError):
+        die('%s is misconfigured - check .net.conf.example' % name)
+
+    if type == 'openvpn':
+        path_conf = '/tmp/%s.ovpn' % name
+        path_log = path_conf + '.log'
+        write_root_file(path_conf, 0o600, conf)
+        rm(path_log)
+        run_daemon(start_openvpn_cmd(name).split())
+
+        # Wait for OpenVPN to start
+        while True:
+            try:
+                fd = open(path_log)
+                break
+            except IOError:
+                time.sleep(0.1)
+
+        # Now we can remove the config file
+        rm(path_conf)
+
+        # Wait for the connection to be established
         line = ''
+        marker = 'Initialization Sequence Completed'
+        while True:
+            s = fd.readline()
+            line += s
+            if not s or s[-1] != '\n':
+                time.sleep(0.05)
+                continue
+            line = line.rstrip()
+            if VERBOSE:
+                print line
+            if marker in line:
+                break
+            line = ''
+
+    elif type == 'wireguard':
+        internaddr = ''
+        ifacename = ''
+        d_gateway = False
+
+        try:
+            internaddr = VPN[name]['address']
+            ifacename = VPN[name]['interface']
+            d_gateway = VPN[name]['gateway']
+        except:
+            pass
+
+        if internaddr and ifacename:
+            create_wg_iface(iface = ifacename, addr = internaddr)
+            wg_setconf(name, iface = ifacename)
+            run_or_die('ip link set dev %s up' % ifacename)
+        elif internaddr:
+            create_wg_iface(addr = internaddr)
+            wg_setconf(name)
+            run_or_die('ip link set dev wg1337 up')
+        elif ifacename:
+            create_wg_iface(iface = ifacename)
+            wg_setconf(name, iface = ifacename)
+            run_or_die('ip link set dev %s up' % ifacename)
+        else:
+            create_wg_iface()
+            wg_setconf(name)
+            run_or_die('ip link set dev wg1337 up')
+
+        if d_gateway == True:
+            set_wg_dgw(name)
+
+    else:
+        die('Unknown VPN type selected for: %s\
+\nSupported VPN types: openvpn, wireguard' % name)
+
+    print 'DONE'
 
 def stop_vpn(name):
-    pattern = start_vpn_cmd(name)
-    run('pkill -9 -f "^%s"' % pattern)
+    print 'Stopping VPN (%s)' % name
+
+    try:
+        type = VPN[name]['type']
+    except (KeyError, TypeError):
+        die('%s is misconfigured - check .net.conf.example' % name)
+
+    if type == 'openvpn':
+        pattern = start_openvpn_cmd(name)
+        run('pkill -9 -f "^%s"' % pattern)
+
+    elif type == 'wireguard':
+        try:
+            if VPN[name]['interface']:
+                destroy_wg_iface(iface = VPN[name]['interface'])
+        except KeyError:
+           destroy_wg_iface()
+
+    else:
+        die('Unknown VPN type selected for: %s\
+\nSupported VPN types: openvpn, wireguard' % name)
 
 def tmp_stop_vpn(name, delay):
     stop_vpn(name)
@@ -1315,11 +1417,8 @@ def do_vpn(vpn, cmd='start', delay=VPN_TMPSTOP_DELAY):
     become_root()
     if cmd == 'start':
         read_config()
-        print 'Starting VPN (%s)' % vpn
         start_vpn(vpn)
-        print 'DONE'
     elif cmd == 'stop':
-        print 'Stopping VPN (%s)' % vpn
         stop_vpn(vpn)
     elif cmd == 'tmpstop':
         read_config()
@@ -1331,6 +1430,12 @@ def do_vpn(vpn, cmd='start', delay=VPN_TMPSTOP_DELAY):
         tmp_stop_vpn(vpn, delay)
     else:
         die('Unknown VPN command: %s' % cmd)
+
+def do_genkey():
+    pk = run('wg genkey').strip()
+    pubkey = run_or_die('echo %s | wg pubkey' % pk).strip()
+    print '======================WireGuard keys======================'
+    print 'Private key:  ' + pk + '\n Public key:  ' + pubkey
 
 def main():
     cmd, args = parse_args()
@@ -1362,6 +1467,10 @@ def main():
         if len(args) > 1:
             die('Command "show" takes one or no arguments')
         do_show(*args)
+    elif cmd == 'genkey':
+        if len(args) > 0:
+            die('Command "genkey" takes no arguments')
+        do_genkey()
 
 if __name__ == '__main__':
     try:
