@@ -297,7 +297,7 @@ def is_wifi_iface(iface):
 
 def get_wifi_ifaces():
     return [iface for iface in
-            run_or_die("iw dev | awk '/^[ \t]*Interface / {print $2}'").strip().split('\n')
+            run_or_die('ls -d /sys/class/net/*/wireless 2>/dev/null | cut -d/ -f5').strip().split('\n')
             if not ignore(iface)]
 
 def get_wifi_iface_up():
@@ -625,7 +625,7 @@ def do_scan():
     iface = IFACE or get_wifi_iface_up() or get_default_wifi_iface()
 
     # Make sure iface is up
-    run_or_die('ifconfig %s up' % iface)
+    run_or_die('ip link set dev %s up' % iface)
 
     aps = {}
     signal_re = re.compile(r'^([0-9.-]*) dBm$')
@@ -1005,8 +1005,8 @@ def stop(iface):
            '/tmp/wpa_supplicant.%s.conf' % iface)
 
     stop_dhcp(iface)
-    run("ip addr flush dev %s" % iface)
-    run_or_die("ifconfig %s down" % iface)
+    run('ip addr flush dev %s' % iface)
+    run_or_die('ip link set dev %s down' % iface)
     del_connection(iface)
 
 def set_dns(dns, append=False):
@@ -1215,21 +1215,27 @@ def do_connect(conn, psk=None):
     set_mac(iface, mac)
     set_dns(dns)
 
-    if not wpa:
-        if is_wifi_iface(iface):
-            print 'Connecting to %s' % ssid
-            cmd = 'iwconfig %s key open ap %s' % (iface, ap_addr or 'any')
-            if ssid:
-                escaped_ssid = ''.join("\\x%02x" % ord(c) for c in ssid)
-                cmd += ' essid -- "%s"' % escaped_ssid
-            else:
-                cmd += ' essid any'
-            run(cmd)
+    # If wired
+    if not is_wifi_iface(iface):
+        if is_wifi:
+            die('WiFi options set on wired interface!')
         if not addr:
             print 'Sending DHCP request'
         for cmd in network:
             run_or_die(cmd)
+    # Else WiFi
     else:
+        # If Open WiFi with fallthrough--always use wpa_supplicant
+        if not wpa:
+            wpa = {'network': {'key_mgmt': 'NONE'}}
+            wpa['network']['ssid'] = ssid.encode('hex')
+            wpa['network'].setdefault('scan_ssid', '0')
+            wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
+            wpa['ctrl_interface_group'] = '0'
+            wpa_conf = '/tmp/wpa_supplicant.%s.conf' % iface
+            wpa_log = '/tmp/wpa_supplicant.%s.log' % iface
+            write_root_file(wpa_conf, 0o600, write_wpa_conf(wpa))
+
         wpa_cli_sh  = '/tmp/wpa_cli.%s.sh' % iface
         wpa_cli_log = '/tmp/wpa_cli.%s.log' % iface
         beg_marker = '[[[BEG]]]'
@@ -1338,8 +1344,8 @@ def finalize_mac(iface, mac):
 def set_mac(iface, mac):
     mac = finalize_mac(iface, mac)
     become_root()
-    run_or_die('ifconfig %s down hw ether %s' % (iface, mac))
-    run_or_die('ifconfig %s up' % iface)
+    run_or_die('ip link set dev %s down' % iface)
+    run_or_die('ip link set dev %s address %s up' % (iface, mac))
 
 def do_mac(mac = None):
     if not IFACE:
