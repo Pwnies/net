@@ -106,15 +106,13 @@ to `~/.bash_completion`.
 |------------------------|-------------------------------|
 | `/bin/ip`              | `iproute2`                    |
 | `/sbin/ethtool`        | `ethtool`                     |
-| `/sbin/ifconfig`       | `net-tools`                   |
 | `/sbin/iw`             | `iw`                          |
-| `/sbin/iwconfig`       | `wireless-tools`              |
 | `/sbin/udhcpc`         | `udhcpc`                      |
 | `/sbin/wpa_cli`        | `wpasupplicant`               |
 | `/sbin/wpa_supplicant` | `wpasupplicant`               |
-| `/usr/bin/awk`         | `mawk` / `gawk`               |
 | `/usr/bin/chattr`      | `e2fsprogs`                   |
 | `/usr/bin/expand`      | `coreutils`                   |
+| `/usr/bin/cut`         | `coreutils`                   |
 | `/usr/bin/pkill`       | `procps`                      |
 | `/usr/sbin/openvpn`    | `openvpn`                     |
 | Python package `yaml`  | `python-yaml` / PyPI `pyyaml` |
