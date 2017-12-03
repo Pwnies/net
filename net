@@ -667,7 +667,8 @@ def do_scan():
     with open('/tmp/.net-scan', 'w') as fd:
         json.dump(aps.keys(), fd)
     ssid_align = max(map(len, aps.keys()))
-    for ssid, (crypto, qualities, addrs) in sorted(aps.items()):
+    for ssid, (crypto, qualities, addrs) in \
+        sorted(aps.items(), key=lambda x: -max(x[1][1])):
         ssid = ssid.strip('\x00')
         print '%s %d dBm %s' % ((ssid or '(hidden)').ljust(ssid_align),
                                 max(qualities),
