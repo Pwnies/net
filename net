@@ -639,6 +639,9 @@ def do_scan():
             if key not in ap or ap[key] == '':
                 ok = False
 
+        if 'SSID' not in ap:
+            continue
+
         ap['SSID'] = unescape_c_str(ap['SSID'])
         try:
             ssid = ap['SSID'].decode('utf8')
