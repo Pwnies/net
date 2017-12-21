@@ -825,8 +825,6 @@ def start_vpn(name):
         die('Unknown VPN type selected for: %s\
 \nSupported VPN types: openvpn, wireguard' % name)
 
-    print 'DONE'
-
 def stop_vpn(name):
     print 'Stopping VPN (%s)' % name
 
@@ -851,6 +849,7 @@ def stop_vpn(name):
 \nSupported VPN types: openvpn, wireguard' % name)
 
 def tmp_stop_vpn(name, delay):
+    print 'Temporarily:',
     stop_vpn(name)
     # Daemonize
     if os.fork():
@@ -1305,13 +1304,12 @@ echo %s
                 print line
             line = ''
 
-    print 'DONE (addr: %s)' % get_addr4(iface)
+    print 'Address acquired: %s' % get_addr4(iface)
 
     if vpn and not NOVPN:
-        # Better safe than sorry
+        print 'Just to be safe:',
         stop_vpn(vpn)
         start_vpn(vpn)
-        print 'DONE'
 
     add_connection(iface, conn)
 
