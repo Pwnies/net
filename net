@@ -378,7 +378,7 @@ def get_vpns():
 def bash_complete(xs):
     # XXX: Make this robust
     def quote(s):
-        return s.replace(' ', r'\\ ')
+        return s.encode('utf8').replace(' ', r'\\ ')
     print '\n'.join(map(quote, xs))
     sys.exit(0)
 
@@ -639,6 +639,9 @@ def do_scan():
             if key not in ap or ap[key] == '':
                 ok = False
 
+        if 'SSID' not in ap:
+            continue
+
         ap['SSID'] = unescape_c_str(ap['SSID'])
         try:
             ssid = ap['SSID'].decode('utf8')
@@ -664,7 +667,8 @@ def do_scan():
     with open('/tmp/.net-scan', 'w') as fd:
         json.dump(aps.keys(), fd)
     ssid_align = max(map(len, aps.keys()))
-    for ssid, (crypto, qualities, addrs) in sorted(aps.items()):
+    for ssid, (crypto, qualities, addrs) in \
+        sorted(aps.items(), key=lambda x: -max(x[1][1])):
         ssid = ssid.strip('\x00')
         print '%s %d dBm %s' % ((ssid or '(hidden)').ljust(ssid_align),
                                 max(qualities),
@@ -1300,7 +1304,7 @@ echo %s
                 print line
             line = ''
 
-    print 'Address acquired: %s)' % get_addr4(iface)
+    print 'Address acquired: %s' % get_addr4(iface)
 
     if vpn and not NOVPN:
         print 'Just to be safe:',
