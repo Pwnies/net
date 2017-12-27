@@ -79,11 +79,13 @@ common: # Default settings
 ignored:
   interfaces:
   - br[0-9]+
+  - docker[0-9]+ # Docker
   - tap[0-9]+
   - tun[0-9]+
-  - docker[0-9]+ # Docker
   - vboxnet[0-9]+ # Virtualbox
+  - veth.*
   - vmnet[0-9]+ # VMWare
+  - wg.* # Probably WireGuard
 
 vpn:
   myvpn:

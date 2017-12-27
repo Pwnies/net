@@ -36,12 +36,14 @@ KNOWN_KEYS = (
 FALLBACK_CONFIG = {
     'ignored': {
         'interfaces': [
-            r'docker[0-9]+',
             r'br[0-9]+',
-            r'vboxnet[0-9]+',
+            r'docker[0-9]+',
             r'tap[0-9]+',
             r'tun[0-9]+',
+            r'vboxnet[0-9]+',
+            r'veth.*',
             r'vmnet[0-9]+',
+            r'wg.*',
             ],
         'ssids': [],
         },
