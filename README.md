@@ -59,9 +59,9 @@ The simplest usage is probably connecting to a wireless network:
 
 ```
 $ net connect MyWirelessNetwork MySecretPassphrase
-Connecting
+Connecting to MyWirelessNetwork
 Sending DHCP request
-DONE (addr: 192.168.1.42)
+Address acquired: 192.168.1.42
 ```
 
 ### Configuration
@@ -225,7 +225,9 @@ common:
   udhcpc-config: /etc/udhcpc/default.script
 ```
 
-## Contributers
+## Contributors
 
-This script was developed by [myself](https://github.com/br0ns) and
-[Idolf](https://github.com/idolf).
+If you want to contribute, feel free to make a pull request on [Github](https://github.com/Pwnies/net), please read [CONTRIBUTING](CONTRIBUTING) and [the license](UNLICENSE) first.
+
+This project was originally developed by [br0ns](https://github.com/br0ns) and based on [IdolfHatler/vcsh-wifi](https://git.pwnies.dk/IdolfHatler/vcsh-wifi) by [Idolf](https://github.com/idolf).
+For a complete list; check the log.

@@ -1,8 +1,6 @@
 #!/usr/bin/env python2.7
 import os, sys, time, subprocess, re, random, yaml, json, resource
 
-# Based on https://git.pwnies.dk/IdolfHatler/vcsh-wifi
-
 DEFAULT_CONFIG_FILE = '~/.net.conf'
 
 CONFIG_FILE = None
