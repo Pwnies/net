@@ -129,7 +129,7 @@ on non-Debian systems, which doesn't have a separate package, by:
 ```
 # ln /bin/busybox /usr/local/bin/udhcpc
 ```
-* Install a client script somewhere and make it executable - [udhcpc README](https://udhcp.busybox.net/README.udhcpc)
+* Install a client script somewhere and make it executable - [udhcpc script](`default.script`) - [udhcpc README](https://udhcp.busybox.net/README.udhcpc)
 * Set _udhcpc-config:_ under _common:_
 ```
 common:
