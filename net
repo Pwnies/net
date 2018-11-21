@@ -320,6 +320,34 @@ def get_default_wired_iface():
     # non-wireless, non-loopback interfaces and select the first one. Hopefully
     # that is good enough.
     ifaces = [iface for iface in get_ifaces() if not is_wifi_iface(iface)]
+    # If we have more than one wired interface, try to find one with a carrier
+    # (i.e. a cable plugged in).
+    if len(ifaces) > 1:
+        with_carrier = []
+        isdown = [iface for iface in ifaces
+                  if 'DOWN' in run_or_die('ip link show %s' % iface)]
+        # Put this here, so we only print the following message once.
+        if isdown:
+            become_root()
+        print 'Detecting carrier on wired interfaces'
+        for iface in isdown:
+            run_or_die('ip link set dev %s up' % iface)
+        if isdown:
+            # Wait a short while for carrier to be detected
+            time.sleep(0.2)
+        for iface in ifaces:
+            print iface,
+            carrier = file('/sys/class/net/%s/carrier' % iface).read()
+            if int(carrier):
+                with_carrier.append(iface)
+                print 'Yes'
+            else:
+                print 'No'
+        for iface in isdown:
+            run_or_die('ip link set dev %s down' % iface)
+        # If we found no interfaces with a carrier, just use the original list.
+        if with_carrier:
+            ifaces = with_carrier
     if ifaces:
         iface = ifaces[0]
         if len(ifaces) > 1:
