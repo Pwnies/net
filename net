@@ -720,7 +720,8 @@ def do_scan(open_flag=None):
         print 'Found no access points'
         return
     with open('/tmp/.net-scan', 'w') as fd:
-        json.dump(aps.keys(), fd)
+        # Avoid null-bytes; they wreck bash completion
+        json.dump([k for k in aps.keys() if '\0' not in k], fd)
     ssid_align = max(map(len, aps.keys()))
     for ssid, (crypto, qualities, addrs) in \
         sorted(aps.items(), key=lambda x: -max(x[1][1])):
