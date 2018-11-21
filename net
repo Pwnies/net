@@ -294,7 +294,10 @@ def get_ifaces_up():
     return get_ifaces(True)
 
 def is_wifi_iface(iface):
-    return run('iw dev %s info' % iface) != None
+    # XXX: Could we just check for the existence of
+    #      `/sys/class/net/XXX/wireless/` here?
+    # Add comment to command to make more sense of `--verbose` output
+    return run('iw dev %s info # Is this a WiFi interface?' % iface) != None
 
 def get_wifi_ifaces():
     return [iface for iface in
