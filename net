@@ -543,7 +543,16 @@ def read_config(reraise = False):
     IGNORED_SSIDS = set(re.compile(ign) for ign in IGN.get('ssids') or [])
     VPN = raw_config.pop('vpn', {})
 
+    aliases = {}
+
     for name, raw_conn in raw_config.items():
+        # An alias
+        if isinstance(raw_conn, str):
+            def repl(m):
+                cmd, = filter(None, m.groups())
+                return run_or_die(cmd).strip()
+            aliases[name] = re.sub(r'\$\((.*?)\)|`(.*?)`', repl, raw_conn)
+            continue
         conn = {}
         for key, val in (raw_conn or {}).items():
             # Assume UTF-8 encoding
@@ -566,7 +575,12 @@ def read_config(reraise = False):
             COMMON = conn
         else:
             CONFIG[name] = conn
-
+    # Resolve aliases
+    for alias, name in aliases.items():
+        if name not in CONFIG:
+            die('"%s" is an alias for "%s", but it is not defined' %
+                (alias, name))
+        CONFIG[alias] = CONFIG[name]
     # Set common settings
     for name, conn in CONFIG.items():
         for key, val in COMMON.items():
