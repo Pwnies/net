@@ -1,8 +1,6 @@
 #!/usr/bin/env python2.7
 import os, sys, time, subprocess, re, random, yaml, json, resource
 
-# Based on https://git.pwnies.dk/IdolfHatler/vcsh-wifi
-
 DEFAULT_CONFIG_FILE = '~/.net.conf'
 
 CONFIG_FILE = None
@@ -36,13 +34,14 @@ KNOWN_KEYS = (
 FALLBACK_CONFIG = {
     'ignored': {
         'interfaces': [
-            r'docker[0-9]+',
-            r'veth[0-9a-f]+',
             r'br[0-9]+',
-            r'vboxnet[0-9]+',
+            r'docker[0-9]+',
             r'tap[0-9]+',
             r'tun[0-9]+',
+            r'vboxnet[0-9]+',
+            r'veth.*',
             r'vmnet[0-9]+',
+            r'wg.*',
             ],
         'ssids': [],
         },
