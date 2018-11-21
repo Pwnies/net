@@ -1221,6 +1221,21 @@ def do_connect(conn, psk=None):
         wpa_log = '/tmp/wpa_supplicant.%s.log' % iface
         write_root_file(wpa_conf, 0o600, write_wpa_conf(wpa))
 
+    # Flush default route?  New default route set either below or via DHCP.
+    default_route = get_default_route()
+    add_default = True
+    if default_route:
+        if 'default' in routes or \
+           yesno('Replace default route via %s dev %s?' % \
+                 (default_route['via'], default_route['dev']),
+                 False):
+            logv('Flusing default route via %s dev %s' % \
+                 (default_route['via'], default_route['dev']))
+            run_or_die('ip route flush default via %s' % \
+                       default_route['via'])
+        else:
+            add_default = False
+
     if addr:
         try:
             ip, netmask = re.findall(r'(\d+\.\d+\.\d+\.\d+)(/\d+)?', addr)[0]
@@ -1234,26 +1249,11 @@ def do_connect(conn, psk=None):
             logv('(Guessed netmask: 255.255.255.0)')
             netmask = '/24'
 
+        network = ['ip addr add %s%s dev %s' % (ip, netmask, iface)]
+
         if not gateway:
             gateway = guess_gateway_ipv4(ip, netmask[1:])
             logv('(Guessed gateway: %s)' % gateway)
-
-        network = ['ip addr add %s%s dev %s' % (ip, netmask, iface)]
-
-        default_route = get_default_route()
-        # Add default route if none exists
-        add_default = True
-        if default_route:
-            if 'default' in routes or \
-               yesno('Override default route via %s dev %s?' % \
-                     (default_route['via'], default_route['dev']),
-                     False):
-                logv('Flusing default route via %s dev %s' % \
-                     (default_route['via'], default_route['dev']))
-                run_or_die('ip route flush default via %s' % \
-                           default_route['via'])
-            else:
-                add_default = False
 
         if gateway != 'none' and add_default and 'default' not in routes:
             network.append('ip route add default via %s dev %s' % \
