@@ -140,5 +140,5 @@ common:
 
 If you want to contribute, feel free to make a pull request on [Github](https://github.com/Pwnies/net), please read [CONTRIBUTING](CONTRIBUTING) and [the license](UNLICENSE) first.
 
-This project was originally developed by [br0ns](https://github.com/br0ns) and based on [IdolfHatler/vcsh-wifi](https://git.pwnies.dk/IdolfHatler/vcsh-wifi) by [Idolf](https://github.com/idolf).
+This project was originally developed by [br0ns](https://github.com/br0ns) and [TethysSvensson](https://github.com/TethysSvensson).
 For a complete list; check the log.
