@@ -494,7 +494,7 @@ def read_config(reraise = False):
         return
     try:
         with open(expand(CONFIG_FILE)) as fd:
-            raw_config = yaml.load(fd)
+            raw_config = yaml.load(fd, Loader=yaml.SafeLoader)
     except Exception as e:
         if reraise:
             raise
