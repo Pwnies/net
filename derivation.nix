@@ -24,7 +24,7 @@ in stdenv.mkDerivation rec {
   meta = with stdenv.lib; {
     homepage = "https://github.com/Pwnies/net/";
     description = "Super lightweight network manager";
-    license = licenses.unfree;
+    license = licenses.unlicense;
     maintainers = with maintainers; [ kristoff3r ];
   };
 }
