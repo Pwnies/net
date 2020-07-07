@@ -1,8 +1,8 @@
-{ stdenv, iw, wpa_supplicant, python2, busybox, ethtool, wireguard, runCommand }:
+{ stdenv, iw, wpa_supplicant, python2, busybox, ethtool, wireguard, openvpn, runCommand }:
 
 let
   pythonEnv = python2.withPackages(ps: with ps; [ pyyaml ]);
-  path = stdenv.lib.makeBinPath [ pythonEnv iw wpa_supplicant busybox ethtool wireguard ];
+  path = stdenv.lib.makeBinPath [ pythonEnv iw wpa_supplicant busybox ethtool wireguard openvpn ];
 in runCommand "net" {
   meta = with stdenv.lib; {
     homepage = "https://github.com/Pwnies/net/";
