@@ -11,9 +11,9 @@ in runCommand "net" {
     maintainers = with maintainers; [ kristoff3r ];
   };
 } ''
-  export PATH=${path}
   mkdir -p $out/bin
   cp ${./net} $out/bin/net
-  patchShebangs $out/bin/net
-  sed -i "1 a import os; os.environ['PATH'] += '$PATH:' + os.environ['PATH']" $out/bin/net
+  # Fix the path now to make patchShebangs do the right thing
+  PATH=${path} patchShebangs $out/bin/net
+  sed -i "1 a import os; os.environ['PATH'] = '${path}:' + os.environ['PATH']" $out/bin/net
 ''
