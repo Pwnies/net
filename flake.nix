@@ -1,12 +1,12 @@
 {
   inputs = {
-    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/20.03";
   };
 
-  outputs = { nixpkgs-unstable, self, ... }@inputs:
+  outputs = { nixpkgs, self, ... }@inputs:
     {
       defaultPackage.x86_64-linux =
-        with import nixpkgs-unstable { system = "x86_64-linux"; };
+        with import nixpkgs { system = "x86_64-linux"; };
         callPackage ./derivation.nix { };
 
       checks.x86_64-linux.build = self.defaultPackage.x86_64-linux;
