@@ -746,7 +746,7 @@ def do_scan(open_flag=None):
 def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None):
     cmd = 'udhcpc -R -i %s' % iface
     if hostname:
-        cmd += ' -x hostname:%s' % hostname
+        cmd += ' -F %s' % hostname
     if udhcpc_config:
         cmd += ' -s %s' % udhcpc_config
     return cmd
