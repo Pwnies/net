@@ -271,7 +271,7 @@ def expand(path):
 
 def become_root():
     if os.getuid() != 0:
-        os.execlp('sudo', 'sudo', 'python', *sys.argv)
+        os.execlp('sudo', 'sudo', 'python2', *sys.argv)
 
 def write_root_file(path, mode, data):
     with open(path, 'w') as fd:
