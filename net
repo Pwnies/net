@@ -683,6 +683,9 @@ def do_scan(open_flag=None):
     become_root()
     iface = IFACE or get_wifi_iface_up() or get_default_wifi_iface()
 
+    if not iface:
+        die('No WiFi interface')
+
     # Make sure iface is up
     run_or_die('ip link set dev %s up' % iface)
 
