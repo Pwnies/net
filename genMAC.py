@@ -1,12 +1,9 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 import os
 import sys
 import requests
 import csv
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import pickle
 from collections import defaultdict
 
 DEFAULT_CONFIG_DIR = os.path.expanduser('~/.net')
@@ -19,12 +16,12 @@ CSV = '.' + os.path.basename(URL)
 os.chdir(os.path.dirname(__file__))
 
 if '-f' in sys.argv or not os.path.exists(CSV):
-    print >>sys.stderr, 'Retrieving MAC vendor prefixes from %s' % URL
+    print('Retrieving MAC vendor prefixes from %s' % URL, file=sys.stderr)
     r = requests.get(URL)
     assert r.ok, 'Could not download MAC prefixes'
     file(CSV, 'wb').write(r.text.encode('utf8'))
 else:
-    print >>sys.stderr, 'Using cached MAC vendor prefixes from %s' % CSV
+    print('Using cached MAC vendor prefixes from %s' % CSV, file=sys.stderr)
 
 vendors = defaultdict(list)
 with file(CSV, 'rb') as f:
@@ -32,18 +29,18 @@ with file(CSV, 'rb') as f:
     for row in rd:
         _tag, prefix, vendor, _address = row
         mask = ['??'] * 6
-        for i in xrange(len(prefix) / 2):
+        for i in range(len(prefix) / 2):
             mask[i] = prefix[i * 2: i * 2 + 2].ljust(2, '?')
         mask = ':'.join(mask)
         vendors[vendor].append(mask)
 
-vendors = vendors.items()
+vendors = list(vendors.items())
 
 # Make sure config dir exists
 if not os.path.isdir(DEFAULT_CONFIG_DIR):
-    print >>sys.stderr, 'Creating directory %f' % DEFAULT_CONFIG_DIR
+    print('Creating directory %f' % DEFAULT_CONFIG_DIR, file=sys.stderr)
     os.mkdir(DEFAULT_CONFIG_DIR)
 
 path = os.path.join(DEFAULT_CONFIG_DIR, 'MAC.pkl')
 pickle.dump(vendors, file(path, 'wb'))
-print >>sys.stderr, 'Wrote %d MAC vendor prefixes to %s' % (len(vendors), path)
+print('Wrote %d MAC vendor prefixes to %s' % (len(vendors), path), file=sys.stderr)
