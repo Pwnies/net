@@ -194,6 +194,7 @@ def run(cmd, exit_on_error = False):
                          stdout = subprocess.PIPE,
                          stderr = subprocess.PIPE,
                          shell = True,
+                         text = True,
                          )
     o, e = p.communicate()
     status = p.poll()
@@ -268,7 +269,7 @@ def expand(path):
 
 def become_root():
     if os.getuid() != 0:
-        os.execlp('sudo', 'sudo', 'python2', *sys.argv)
+        os.execlp('sudo', 'sudo', 'python3', *sys.argv)
 
 def write_root_file(path, mode, data):
     with open(path, 'w') as fd:
@@ -557,21 +558,24 @@ def read_config(reraise = False):
             continue
         conn = {}
         for key, val in (raw_conn or {}).items():
-            # Assume UTF-8 encoding
-            if isinstance(val, str):
-                val = val.encode('utf8')
+            # FIXME: the change from Python 2 to 3 may have introduced all sorts
+            # of encoding errors
+
+            # # Assume UTF-8 encoding
+            # if isinstance(val, str):
+            #     val = val.encode('utf8')
             if key == 'wpa':
                 val = parse_wpa_conf(val)
             if key not in KNOWN_KEYS:
                 die('Unknown key: %s' % key)
-            if isinstance(val, str):
-                # The yaml decoder will convert
-                # non-ascii strings into unicode
-                # This is not what we want. We want
-                # e.g. '\xc3' in the yaml file to become b'\xc3',
-                # not u'\xc3'.
-                # This is an ugly hack to fix it.
-                val = val.encode('iso-8859-1')
+            # if isinstance(val, str):
+            #     # The yaml decoder will convert
+            #     # non-ascii strings into unicode
+            #     # This is not what we want. We want
+            #     # e.g. '\xc3' in the yaml file to become b'\xc3',
+            #     # not u'\xc3'.
+            #     # This is an ugly hack to fix it.
+            #     val = val.encode('iso-8859-1')
             conn[key] = val
         if name == 'common':
             COMMON = conn
@@ -620,7 +624,7 @@ def do_list():
 def unescape_c_str(data):
     return re.sub(
         r'\\x([0-9a-f]{2})',
-        lambda x: x.group(1).decode('hex'),
+        lambda x: bytes.fromhex(x.group(1)).decode('latin1'),
         data
     )
 
@@ -1224,7 +1228,7 @@ def do_connect(conn, psk=None):
             else:
                 ssid = conn
 
-        wpa['network']['ssid'] = ssid.encode('hex')
+        wpa['network']['ssid'] = ssid.encode('latin-1').hex()
         wpa['network'].setdefault('scan_ssid', '0')
         wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
         wpa['ctrl_interface_group'] = '0'
@@ -1298,7 +1302,7 @@ def do_connect(conn, psk=None):
         # If Open WiFi with fallthrough--always use wpa_supplicant
         if not wpa:
             wpa = {'network': {'key_mgmt': 'NONE'}}
-            wpa['network']['ssid'] = ssid.encode('hex')
+            wpa['network']['ssid'] = ssid.encode('latin1').hex()
             wpa['network'].setdefault('scan_ssid', '0')
             wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
             wpa['ctrl_interface_group'] = '0'
