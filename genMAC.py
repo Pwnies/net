@@ -19,12 +19,12 @@ if '-f' in sys.argv or not os.path.exists(CSV):
     print('Retrieving MAC vendor prefixes from %s' % URL, file=sys.stderr)
     r = requests.get(URL)
     assert r.ok, 'Could not download MAC prefixes'
-    file(CSV, 'wb').write(r.text.encode('utf8'))
+    open(CSV, 'wb').write(r.text.encode('utf8'))
 else:
     print('Using cached MAC vendor prefixes from %s' % CSV, file=sys.stderr)
 
 vendors = defaultdict(list)
-with file(CSV, 'rb') as f:
+with open(CSV, 'rb') as f:
     rd = csv.reader(f)
     for row in rd:
         _tag, prefix, vendor, _address = row
@@ -42,5 +42,5 @@ if not os.path.isdir(DEFAULT_CONFIG_DIR):
     os.mkdir(DEFAULT_CONFIG_DIR)
 
 path = os.path.join(DEFAULT_CONFIG_DIR, 'MAC.pkl')
-pickle.dump(vendors, file(path, 'wb'))
+pickle.dump(vendors, open(path, 'wb'))
 print('Wrote %d MAC vendor prefixes to %s' % (len(vendors), path), file=sys.stderr)

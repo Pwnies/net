@@ -3,8 +3,8 @@ import re
 import subprocess
 
 def expand(src, dst):
-  outfd = file(dst, 'w')
-  infds = [file(src)]
+  outfd = open(dst, 'w')
+  infds = [open(src)]
   while infds:
     fd = infds[-1]
     line = fd.readline()
@@ -21,13 +21,13 @@ def expand(src, dst):
         p = subprocess.Popen(
           arg,
           shell=True,
-          stdin=file('/dev/null'),
+          stdin=open('/dev/null'),
           stdout=subprocess.PIPE,
           stderr=subprocess.STDOUT,
         )
         fd = p.stdout
       elif cmd == 'include':
-        fd = file(arg)
+        fd = open(arg)
       else:
         outfd.write(line)
         continue
