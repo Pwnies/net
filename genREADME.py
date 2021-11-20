@@ -1,5 +1,7 @@
 #!/usr/bin/env python2.7
 import re
+import subprocess
+
 def expand(src, dst):
   outfd = file(dst, 'w')
   infds = [file(src)]
@@ -11,10 +13,25 @@ def expand(src, dst):
       infds.pop()
       continue
 
-    m = re.match(r'^#include\s+(["\'])(.+?)\1$', line)
+    m = re.match(r'^#(\w+)\s+(["\'])(.+?)\2$', line)
     if m:
-      inc = m.group(2)
-      infds.append(file(inc))
+      cmd = m.group(1)
+      arg = m.group(3)
+      if cmd == 'shell':
+        p = subprocess.Popen(
+          arg,
+          shell=True,
+          stdin=file('/dev/null'),
+          stdout=subprocess.PIPE,
+          stderr=subprocess.STDOUT,
+        )
+        fd = p.stdout
+      elif cmd == 'include':
+        fd = file(arg)
+      else:
+        outfd.write(line)
+        continue
+      infds.append(fd)
     else:
       outfd.write(line)
 
