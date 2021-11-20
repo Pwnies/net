@@ -586,6 +586,7 @@ def read_config(reraise = False):
             die('"%s" is an alias for "%s", but it is not defined' %
                 (alias, name))
         CONFIG[alias] = CONFIG[name]
+        CONFIG[alias]['alias_for'] = name
     # Set common settings
     for name, conn in CONFIG.items():
         for key, val in COMMON.items():
@@ -1149,9 +1150,12 @@ def do_connect(conn, psk=None):
         def get(key, default = None):
             return COMMON.get(key, default)
     else:
-        ssid = CONFIG[conn].get('ssid')
         def get(key, default = None):
             return CONFIG[conn].get(key, default)
+        ssid = get('ssid')
+        other_name = get('alias_for')
+        if other_name:
+            print 'Using %s' % other_name
 
     psk           = get('psk', psk)
     ap_addr       = get('ap-addr', ap_addr)
