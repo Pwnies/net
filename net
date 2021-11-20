@@ -1,7 +1,8 @@
 #!/usr/bin/env python2.7
 import os, sys, time, subprocess, re, random, yaml, json, resource
 
-DEFAULT_CONFIG_FILE = '~/.net.conf'
+DEFAULT_CONFIG_DIR  = '~/.net'
+DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_DIR, 'config')
 
 CONFIG_FILE = None
 CONFIG      = None
@@ -103,7 +104,7 @@ Commands:
 Options:
   --config=<config>:
     Select configurations file.  If <config> is "-" no configuration file is
-    used.  Defaults to "~/.net.conf".
+    used.  Defaults to "~/.net/config".
   --iface=<interface>:
     Select networking interface.  Overridden by configuration file if specified.
     Defaults to first WiFi capable interface found.
@@ -808,7 +809,7 @@ def start_vpn(name):
         type = VPN[name]['type']
         conf = VPN[name]['config']
     except (KeyError, TypeError):
-        die('%s is misconfigured - check .net.conf.example' % name)
+        die('%s is misconfigured - check config.example' % name)
 
     if type == 'openvpn':
         path_conf = '/tmp/%s.ovpn' % name
@@ -886,7 +887,7 @@ def stop_vpn(name):
     try:
         type = VPN[name]['type']
     except (KeyError, TypeError):
-        die('%s is misconfigured - check .net.conf.example' % name)
+        die('%s is misconfigured - check config.example' % name)
 
     if type == 'openvpn':
         pattern = start_openvpn_cmd(name)
@@ -1494,6 +1495,11 @@ def do_genkey():
     print 'Private key:  ' + pk + '\n Public key:  ' + pubkey
 
 def main():
+    # Make sure config dir exists
+    config_dir = expand(DEFAULT_CONFIG_DIR)
+    if not os.path.isdir(config_dir):
+        os.mkdir(config_dir)
+
     cmd, args = parse_args()
     if   cmd == 'list':
         if len(args) > 0:
