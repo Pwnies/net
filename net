@@ -96,9 +96,9 @@ Commands:
   mac [<mac>]:
     Change the MAC address of the interface specified by --iface.  If no address
     is given, one is chosen at random.
-  vpn <name> [stop|tmpstop [delay]]:
+  vpn [<name>] [stop|tmpstop [delay]]:
     Connect to, or disconnect (temporarily [default = 5m] in case of tmpstop)
-    from, VPN.
+    from, VPN.  Lists available VPNs if called without argument.
   genkey:
     Generate a WireGuard key pair.
   show [<connection>]:
@@ -1548,8 +1548,10 @@ def main():
         do_stop(*args)
     elif cmd == 'vpn':
         if not args:
-            die('Command "vpn" needs a VPN name')
-        do_vpn(*args)
+            for vpn in get_vpns():
+                print vpn
+        else:
+            do_vpn(*args)
     elif cmd == 'show':
         if len(args) > 1:
             die('Command "show" takes one or no arguments')
