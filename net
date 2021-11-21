@@ -261,6 +261,31 @@ def rm(*paths):
         except OSError:
             pass
 
+# Ref: https://github.com/Gallopsled/pwntools/blob/dev/pwnlib/util/misc.py
+def which(name, all=False, path=None):
+    isroot = os.getuid() == 0
+    out = set()
+    try:
+        path = path or os.environ['PATH']
+    except KeyError:
+        log.exception('Environment variable $PATH is not set')
+    for p in path.split(os.pathsep):
+        p = os.path.join(p, name)
+        if os.access(p, os.X_OK):
+            st = os.stat(p)
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            # work around this issue: https://bugs.python.org/issue9311
+            if isroot and not \
+              st.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                continue
+            if all:
+                out.add(p)
+            else:
+                return p
+    if all:
+        return out
+
 def expand(path):
     if path.startswith('~/'):
         user = os.environ.get('SUDO_USER', '')
@@ -744,18 +769,35 @@ def do_scan(open_flag=None):
             for addr, quality in zip(addrs, qualities):
                 print('  - %s %d dBm' % (addr, quality))
 
-def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None):
-    cmd = 'udhcpc -R -i %s' % iface
+# If `udhcpc` is not instailled on the sytem we call it through `busybox`
+# instead.  However, this probably means that the `udhcpc` default script is not
+# installed either.  We warn about that in `start_dhcp_cmd` below.
+def udhcpc():
+    return 'udhcpc' if which('udhcpc') else 'busybox udhcpc'
+
+def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None, warn_no_config = True):
+    cmd = udhcpc() + ' -R -i %s' % iface
     if hostname:
         if hostname == 'system':
             hostname = run('hostname') or hostname
         cmd += ' -F %s' % hostname
     if udhcpc_config:
         cmd += ' -s %s' % udhcpc_config
+    elif not os.path.isfile('/etc/udhcpc/default.script') and warn_no_config:
+        print('!! No `udhcpc` configuration given and ' \
+              '/etc/udhcpc/default.script does not exist')
+        print('!! Acquired information will not be set')
+        print('')
+        print('Set IP and default gateway manually:')
+        print('$ ip a add 192.168.0.99/24 dev <iface>')
+        print('$ ip r add default via 192.168.0.1 dev <iface>')
+        print('')
+        print('Tip: See the used interface and acquired address by running ' \
+              'with --verbose.')
     return cmd
 
 def stop_dhcp_cmd(iface):
-    pattern = start_dhcp_cmd(iface)
+    pattern = start_dhcp_cmd(iface, warn_no_config = False)
     return 'pkill -f "^%s"' % pattern
 
 def stop_dhcp(iface):
@@ -766,7 +808,8 @@ def renew_dhcp_cmd():
     # We only call this function in `do_dns', and this function is not aware of
     # which interface we are talking about. So: We renew them all and accept the
     # race condition.
-    return 'pkill -SIGUSR1 udhcpc'
+    pattern = udhcpc()
+    return 'pkill -SIGUSR1 "^%s' % pattern
 
 def renew_dhcp():
     run(renew_dhcp_cmd())

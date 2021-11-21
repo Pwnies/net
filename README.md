@@ -217,7 +217,7 @@ to `~/.bash_completion`.
 | `/usr/bin/pkill`       | `procps`                             |
 | `/usr/sbin/openvpn`    | `openvpn`                            |
 | `/usr/bin/wg`          | `https://www.wireguard.com/install/` |
-| Python package `yaml`  | `python-yaml` / PyPI `pyyaml`        |
+| Python package `yaml`  | `python3-yaml` / PyPI `pyyaml`       |
 
 It is also a good idea to uninstall resolvconf, as it overwrites the DNS settings.
 
@@ -234,6 +234,14 @@ on non-Debian systems, which doesn't have a separate package, by:
 common:
   udhcpc-config: /etc/udhcpc/default.script
 ```
+
+### Bootstrapping
+
+`net` will run even without `udhcpc` or `python3-yaml`, with limited
+functionality.  In the former case information acquired via DHCP may not be
+reflected on the system, and in the latter the configuration file will not be
+used.  However it may be enough to get online in order to fulfill the
+dependencies (tested on Debian 11).
 
 ## Contributors
 

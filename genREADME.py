@@ -24,6 +24,7 @@ def expand(src, dst):
           stdin=open('/dev/null'),
           stdout=subprocess.PIPE,
           stderr=subprocess.STDOUT,
+          text=True,
         )
         fd = p.stdout
       elif cmd == 'include':
