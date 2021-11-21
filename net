@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
-import os, sys, time, subprocess, re, random, yaml, json, resource
+import os, sys, time, subprocess, re, random, json, resource, stat
 import pickle
+try:
+    import yaml
+except ImportError:
+    # `yaml` is used to load the configuration, but we can still do some things
+    # (such as connecting to a standard AP and install `python3-yaml`) without
+    # it, so this is not a hard-hard dependency.
+    yaml = None
 
 DEFAULT_CONFIG_DIR  = '~/.net'
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_DIR, 'config')
@@ -294,7 +301,10 @@ def expand(path):
 
 def become_root():
     if os.getuid() != 0:
-        os.execlp('sudo', 'sudo', 'python3', *sys.argv)
+        os.execlp('sudo', 'sudo', 'python3', *sys.argv,
+                  # Only warn about missing `yaml` once
+                  '--internal-no-warn-no-yaml'
+                  )
 
 def write_root_file(path, mode, data):
     with open(path, 'w') as fd:
@@ -472,6 +482,11 @@ def parse_args():
     if '-h' in optional or '--help' in optional or (args and args[0] == 'help'):
         usage()
 
+    # This flag is set by `become_root` so we only see a warning about missing
+    # `yaml` once.
+    if not optional.pop('--internal-no-warn-no-yaml', False):
+        if yaml is None:
+            print('!! PyYaml is not installed, cannot read config file')
     read_config()
     if '--internal-list-all' in optional:
         bash_complete(list(CONFIG.keys()))
@@ -552,9 +567,13 @@ def read_config(reraise = False):
     COMMON = {}
     if CONFIG_FILE is None:
         return
+    if yaml is None:
+        return
     try:
         with open(expand(CONFIG_FILE)) as fd:
             raw_config = yaml.safe_load(fd)
+    except FileNotFoundError:
+        return
     except Exception as e:
         if reraise:
             raise
@@ -562,7 +581,7 @@ def read_config(reraise = False):
     if raw_config is None:
         if reraise:
             raise
-        die('Empty configuration')
+        die('Empty configuration; remove or populate it (see `config.example`)')
     for k, v in FALLBACK_CONFIG.items():
         raw_config.setdefault(k, v)
 
