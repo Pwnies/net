@@ -751,7 +751,7 @@ def do_scan(open_flag=None):
 
         ap['SSID'] = unescape_c_str(ap['SSID'])
         try:
-            ssid = ap['SSID'].decode('utf8')
+            ssid = ap['SSID']
         except UnicodeDecodeError:
             ssid = escape_c_str(ap['SSID'])
 
