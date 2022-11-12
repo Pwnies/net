@@ -885,6 +885,13 @@ def start_vpn(name):
     except (KeyError, TypeError):
         die('%s is misconfigured - check config.example' % name)
 
+    here = os.path.dirname(expand(CONFIG_FILE))
+    mbpath = os.path.join(here, conf)
+    if os.path.isfile(mbpath):
+        with open(mbpath, 'r') as f:
+            conf = f.read()
+        print(f'Read OpenVPN configuration from {mbpath}')
+
     if type == 'openvpn':
         path_conf = '/tmp/%s.ovpn' % name
         path_log = path_conf + '.log'
