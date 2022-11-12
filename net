@@ -913,6 +913,7 @@ def start_vpn(name):
         # Wait for the connection to be established
         line = ''
         marker = 'Initialization Sequence Completed'
+        dns = []
         while True:
             s = fd.readline()
             line += s
@@ -920,11 +921,37 @@ def start_vpn(name):
                 time.sleep(0.05)
                 continue
             line = line.rstrip()
+            # Catch DNS options
+            if 'PUSH_REPLY,' in line:
+                for opt in re.findall(r"'PUSH_REPLY,([^']*)'", line)[0].split(','):
+                    key, *args = opt.split()
+                    if key == 'dhcp-option':
+                        if args[0] == 'DNS':
+                            dns += [f'nameserver {args[1]}']
+                        elif args[0] == 'DOMAIN':
+                            dns += [f'search {args[1]}']
             if VERBOSE:
                 print(line)
             if marker in line:
                 break
             line = ''
+
+        if dns:
+            dns = '\n'.join(dns)
+            print('Updating resolv.conf:')
+            print(dns)
+            become_root()
+            run('chattr -i /etc/resolv.conf')
+            run('cp /etc/resolv.conf /tmp/resolv.conf.novpn')
+            with open('/etc/resolv.conf', 'w') as fd:
+                fd.write(dns)
+                fd.write('\n')
+            run('chattr +i /etc/resolv.conf')
+        else:
+            try:
+                os.unlink('/tmp/resolv.conf.novpn')
+            except FileNotFoundError:
+                pass
 
     elif type == 'wireguard':
         internaddr = ''
@@ -973,6 +1000,12 @@ def stop_vpn(name):
     if type == 'openvpn':
         pattern = start_openvpn_cmd(name)
         run('pkill -9 -f "^%s"' % pattern)
+        if os.path.exists('/tmp/resolv.conf.novpn'):
+            print('Restoring resolv.conf')
+            become_root()
+            run('chattr -i /etc/resolv.conf')
+            run('mv /tmp/resolv.conf.novpn /etc/resolv.conf')
+            run('chattr +i /etc/resolv.conf')
 
     elif type == 'wireguard':
         try:
