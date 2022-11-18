@@ -24,12 +24,12 @@ else:
     print('Using cached MAC vendor prefixes from %s' % CSV, file=sys.stderr)
 
 vendors = defaultdict(list)
-with open(CSV, 'rb') as f:
+with open(CSV, 'r') as f:
     rd = csv.reader(f)
     for row in rd:
         _tag, prefix, vendor, _address = row
         mask = ['??'] * 6
-        for i in range(len(prefix) / 2):
+        for i in range(len(prefix) // 2):
             mask[i] = prefix[i * 2: i * 2 + 2].ljust(2, '?')
         mask = ':'.join(mask)
         vendors[vendor].append(mask)
