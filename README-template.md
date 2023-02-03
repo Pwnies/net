@@ -7,52 +7,7 @@ Super lightweight network manager.
 RTFM:
 
 ```
-$ net help
-usage: net [<command>] [<args>] [--config=<config>] [--iface=<interface>]
-           [--no-vpn] [--verbose] [-h] [--help]
-
-Shorthands:
-  If no positional arguments are given the command is "list".
-  If one positional argument is given the command is "connect".
-
-Commands:
-  list:
-    List available connections.
-  scan:
-    Scan for access points.
-  connect <connection> [<password>]:
-    If <connection> is present in the configuration file then use that,
-    otherwise connect to an access point with SSID <connection>, using the
-    password <password> if specified.
-  stop [<interface> [<interface> ...]]:
-    Bring down the connection.  Brings down all interfaces if called with no
-    arguments.
-  dns [<dns> [<dns> ...]]:
-    Change DNS server.  No argument or "dhcp" requests DNS servers via DHCP.
-  mac [<mac>]:
-    Change the MAC address of the interface specified by --iface.  If no address
-    is given, one is chosen at random.
-  vpn <name> [stop]:
-    Connect to, or disconnect from, VPN.
-  genkey:
-    Generate a WireGuard key pair.
-  show [<connection>]:
-    Show configuration options.  If no connection is specified, all are show.
-  help:
-    You're reading it.
-
-Options:
-  --config=<config>:
-    Select configurations file.  If <config> is "-" no configuration file is
-    used.  Defaults to "~/.net.conf".
-  --iface=<interface>:
-    Select networking interface.  Overridden by configuration file if specified.
-    Defaults to first WiFi capable interface found.
-  --no-vpn:
-    Don't connect to a VPN.  Acts as if the connection configuration did not
-    have a `vpn` field.
-  --verbose:
-    Print every executed command (and the result) to stdout.
+#shell "./net help"
 ```
 
 The simplest usage is probably connecting to a wireless network:
@@ -70,7 +25,7 @@ The file `~/.net.conf` holds a list of configured networks (in YAML).  An
 example is included in `.net.conf.example`:
 
 ```
-#include ".net.conf.example"
+#include "config.example"
 ```
 
 Using this config file you can connect to `my-home-network` using the command:
@@ -118,7 +73,7 @@ to `~/.bash_completion`.
 | `/usr/bin/pkill`       | `procps`                             |
 | `/usr/sbin/openvpn`    | `openvpn`                            |
 | `/usr/bin/wg`          | `https://www.wireguard.com/install/` |
-| Python package `yaml`  | `python-yaml` / PyPI `pyyaml`        |
+| Python package `yaml`  | `python3-yaml` / PyPI `pyyaml`       |
 
 It is also a good idea to uninstall resolvconf, as it overwrites the DNS settings.
 
@@ -136,9 +91,18 @@ common:
   udhcpc-config: /etc/udhcpc/default.script
 ```
 
+### Bootstrapping
+
+`net` will run even without `udhcpc` or `python3-yaml`, with limited
+functionality.  In the former case information acquired via DHCP may not be
+reflected on the system, and in the latter the configuration file will not be
+used.  However it may be enough to get online in order to fulfill the
+dependencies (tested on Debian 11).
+
 ## Contributors
 
 If you want to contribute, feel free to make a pull request on [Github](https://github.com/Pwnies/net), please read [CONTRIBUTING](CONTRIBUTING) and [the license](UNLICENSE) first.
 
 This project was originally developed by [br0ns](https://github.com/br0ns) and [TethysSvensson](https://github.com/TethysSvensson).
+
 For a complete list; check the log.

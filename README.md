@@ -7,7 +7,6 @@ Super lightweight network manager.
 RTFM:
 
 ```
-$ net help
 usage: net [<command>] [<args>] [--config=<config>] [--iface=<interface>]
            [--no-vpn] [--verbose] [-h] [--help]
 
@@ -18,8 +17,8 @@ Shorthands:
 Commands:
   list:
     List available connections.
-  scan:
-    Scan for access points.
+  scan [open]:
+    Scan for access points.  With "open" only shop open networks.
   connect <connection> [<password>]:
     If <connection> is present in the configuration file then use that,
     otherwise connect to an access point with SSID <connection>, using the
@@ -32,8 +31,9 @@ Commands:
   mac [<mac>]:
     Change the MAC address of the interface specified by --iface.  If no address
     is given, one is chosen at random.
-  vpn <name> [stop]:
-    Connect to, or disconnect from, VPN.
+  vpn [<name>] [stop|tmpstop [delay]]:
+    Connect to, or disconnect (temporarily [default = 5m] in case of tmpstop)
+    from, VPN.  Lists available VPNs if called without argument.
   genkey:
     Generate a WireGuard key pair.
   show [<connection>]:
@@ -44,7 +44,7 @@ Commands:
 Options:
   --config=<config>:
     Select configurations file.  If <config> is "-" no configuration file is
-    used.  Defaults to "~/.net.conf".
+    used.  Defaults to "~/.net/config".
   --iface=<interface>:
     Select networking interface.  Overridden by configuration file if specified.
     Defaults to first WiFi capable interface found.
@@ -140,9 +140,19 @@ wired:
   mac: default # The default is to pick a random Macbook Pro MAC address
   hostname: # Do not send a hostname
 
-static:
+# Alias chooses different configuration for each host
+static: static-$(hostname)
+
+static-laptop:
   interface: eth0
   addr: 192.168.0.42/24
+  gateway: 192.168.0.1
+  routes:
+    - default
+
+static-desktop:
+  interface: eth0
+  addr: 192.168.0.43/24
   gateway: 192.168.0.1
   routes:
     - default
@@ -207,7 +217,7 @@ to `~/.bash_completion`.
 | `/usr/bin/pkill`       | `procps`                             |
 | `/usr/sbin/openvpn`    | `openvpn`                            |
 | `/usr/bin/wg`          | `https://www.wireguard.com/install/` |
-| Python package `yaml`  | `python-yaml` / PyPI `pyyaml`        |
+| Python package `yaml`  | `python3-yaml` / PyPI `pyyaml`       |
 
 It is also a good idea to uninstall resolvconf, as it overwrites the DNS settings.
 
@@ -225,9 +235,18 @@ common:
   udhcpc-config: /etc/udhcpc/default.script
 ```
 
+### Bootstrapping
+
+`net` will run even without `udhcpc` or `python3-yaml`, with limited
+functionality.  In the former case information acquired via DHCP may not be
+reflected on the system, and in the latter the configuration file will not be
+used.  However it may be enough to get online in order to fulfill the
+dependencies (tested on Debian 11).
+
 ## Contributors
 
 If you want to contribute, feel free to make a pull request on [Github](https://github.com/Pwnies/net), please read [CONTRIBUTING](CONTRIBUTING) and [the license](UNLICENSE) first.
 
 This project was originally developed by [br0ns](https://github.com/br0ns) and [TethysSvensson](https://github.com/TethysSvensson).
+
 For a complete list; check the log.

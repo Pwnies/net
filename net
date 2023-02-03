@@ -1,7 +1,17 @@
-#!/usr/bin/env python2.7
-import os, sys, time, subprocess, re, random, yaml, json, resource
+#!/usr/bin/env python3
+import os, sys, time, subprocess, re, random, json, resource, stat
+import pickle
+try:
+    import yaml
+except ImportError:
+    # `yaml` is used to load the configuration, but we can still do some things
+    # (such as connecting to a standard AP and install `python3-yaml`) without
+    # it, so this is not a hard-hard dependency.
+    yaml = None
 
-DEFAULT_CONFIG_FILE = '~/.net.conf'
+DEFAULT_CONFIG_DIR  = '~/.net'
+DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_DIR, 'config')
+MAC_PREFIXES_PICKLE = os.path.join(DEFAULT_CONFIG_DIR, 'MAC.pkl')
 
 CONFIG_FILE = None
 CONFIG      = None
@@ -54,11 +64,11 @@ FALLBACK_CONFIG = {
 
 def die(msg='', exitcode=1):
     if msg:
-        print >>sys.stderr, msg
+        print(msg, file=sys.stderr)
     sys.exit(exitcode)
 
 def log(msg):
-    print >>sys.stderr, msg
+    print(msg, file=sys.stderr)
 
 def logv(msg):
     if VERBOSE:
@@ -76,8 +86,8 @@ Shorthands:
 Commands:
   list:
     List available connections.
-  scan:
-    Scan for access points.
+  scan [open]:
+    Scan for access points.  With "open" only shop open networks.
   connect <connection> [<password>]:
     If <connection> is present in the configuration file then use that,
     otherwise connect to an access point with SSID <connection>, using the
@@ -90,9 +100,9 @@ Commands:
   mac [<mac>]:
     Change the MAC address of the interface specified by --iface.  If no address
     is given, one is chosen at random.
-  vpn <name> [stop|tmpstop [delay]]:
+  vpn [<name>] [stop|tmpstop [delay]]:
     Connect to, or disconnect (temporarily [default = 5m] in case of tmpstop)
-    from, VPN.
+    from, VPN.  Lists available VPNs if called without argument.
   genkey:
     Generate a WireGuard key pair.
   show [<connection>]:
@@ -103,7 +113,7 @@ Commands:
 Options:
   --config=<config>:
     Select configurations file.  If <config> is "-" no configuration file is
-    used.  Defaults to "~/.net.conf".
+    used.  Defaults to "~/.net/config".
   --iface=<interface>:
     Select networking interface.  Overridden by configuration file if specified.
     Defaults to first WiFi capable interface found.
@@ -132,10 +142,10 @@ def optlist(s, opts, default = None, abbrevs = None):
     #  [(key, altkey1, altkey2, ..., value), ...]
     #  [key, ...]
     def conv(opt):
-        if isinstance(opt, (str, unicode)):
+        if isinstance(opt, str):
             return ((opt,),opt)
         return (opt[:-1], opt[-1])
-    opts = map(conv, opts)
+    opts = list(map(conv, opts))
 
     abbrevs = abbrevs or {}
     for ks, _ in opts:
@@ -145,7 +155,7 @@ def optlist(s, opts, default = None, abbrevs = None):
     if len(set(abbrevs.values())) != len(opts):
         die('Ambiguous options')
 
-    ls = map(len, abbrevs.values())
+    ls = list(map(len, list(abbrevs.values())))
     if max(ls) > 1 or min(ls) < 1:
         die('Abbreviation must be exactly one character')
 
@@ -161,51 +171,52 @@ def optlist(s, opts, default = None, abbrevs = None):
     prompt = '%s [%s]: ' % (s, '/'.join(pabbrs))
 
     while True:
-        opt = raw_input(prompt).lower()
+        opt = input(prompt).lower()
         if opt == '':
             return default
         for ks, v in opts:
             abbr = abbrevs[ks[0]]
             if opt == abbr or opt in ks:
                 return v
-        print 'Please select one of %s' % ', '.join(abbrs)
+        print('Please select one of %s' % ', '.join(abbrs))
 
 def yesno (s, default):
     optlist = green('Y') + '/n' if default else 'y/' + green('N')
     prompt = '%s [%s]: ' % (s, optlist)
     while True:
-        opt = raw_input(prompt).lower()
+        opt = input(prompt).lower()
         if opt == '':
             return default
         if opt in ('yes', 'y'):
             return True
         if opt in ('no', 'n'):
             return False
-        print 'Please answer yes or no'
+        print('Please answer yes or no')
 
 def run(cmd, exit_on_error = False):
     if VERBOSE:
-        print '+', cmd
+        print('+', cmd)
     p = subprocess.Popen(cmd,
-                         stdin  = file('/dev/null'),
+                         stdin  = open('/dev/null'),
                          stdout = subprocess.PIPE,
                          stderr = subprocess.PIPE,
                          shell = True,
+                         text = True,
                          )
     o, e = p.communicate()
     status = p.poll()
     if status != 0:
         if exit_on_error or VERBOSE:
-            print 'Failed (status: %d): %s' % (status, cmd)
+            print('Failed (status: %d): %s' % (status, cmd))
         if exit_on_error:
             die(e)
         else:
             return None
     if VERBOSE:
         if o:
-            print o.rstrip()
+            print(o.rstrip())
         if e:
-            print red(e.strip())
+            print(red(e.strip()))
     return o
 
 def run_or_die(cmd):
@@ -217,7 +228,7 @@ def daemon():
         if pid > 0:
             # Return as parent
             return False
-    except OSError, e:
+    except OSError as e:
         die('fork failed')
 
     # decouple from parent environment
@@ -231,7 +242,7 @@ def daemon():
         if pid > 0:
             # exit from second parent
             sys.exit(0)
-    except OSError, e:
+    except OSError as e:
         die('fork failed')
 
     # Close file descriptors
@@ -245,7 +256,7 @@ def daemon():
 
 def run_daemon(argv):
     if VERBOSE:
-        print '+ (DAEMON)', ' '.join(argv)
+        print('+ (DAEMON)', ' '.join(argv))
     if daemon():
         os.execvp(argv[0], argv)
         die('exec failed')
@@ -257,6 +268,31 @@ def rm(*paths):
         except OSError:
             pass
 
+# Ref: https://github.com/Gallopsled/pwntools/blob/dev/pwnlib/util/misc.py
+def which(name, all=False, path=None):
+    isroot = os.getuid() == 0
+    out = set()
+    try:
+        path = path or os.environ['PATH']
+    except KeyError:
+        log.exception('Environment variable $PATH is not set')
+    for p in path.split(os.pathsep):
+        p = os.path.join(p, name)
+        if os.access(p, os.X_OK):
+            st = os.stat(p)
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            # work around this issue: https://bugs.python.org/issue9311
+            if isroot and not \
+              st.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                continue
+            if all:
+                out.add(p)
+            else:
+                return p
+    if all:
+        return out
+
 def expand(path):
     if path.startswith('~/'):
         user = os.environ.get('SUDO_USER', '')
@@ -265,7 +301,10 @@ def expand(path):
 
 def become_root():
     if os.getuid() != 0:
-        os.execlp('sudo', 'sudo', 'python', *sys.argv)
+        os.execlp('sudo', 'sudo', 'python3', *sys.argv,
+                  # Only warn about missing `yaml` once
+                  '--internal-no-warn-no-yaml'
+                  )
 
 def write_root_file(path, mode, data):
     with open(path, 'w') as fd:
@@ -293,7 +332,10 @@ def get_ifaces_up():
     return get_ifaces(True)
 
 def is_wifi_iface(iface):
-    return run('iw dev %s info' % iface) != None
+    # XXX: Could we just check for the existence of
+    #      `/sys/class/net/XXX/wireless/` here?
+    # Add comment to command to make more sense of `--verbose` output
+    return run('iw dev %s info # Is this a WiFi interface?' % iface) != None
 
 def get_wifi_ifaces():
     return [iface for iface in
@@ -310,7 +352,7 @@ def get_default_wifi_iface():
     if ifaces:
         iface = ifaces[0]
         if len(ifaces) > 1:
-            print 'Using interface "%s"' % iface
+            print('Using interface "%s"' % iface)
         return iface
     die('Could not find any WiFi interfaces')
 
@@ -319,10 +361,38 @@ def get_default_wired_iface():
     # non-wireless, non-loopback interfaces and select the first one. Hopefully
     # that is good enough.
     ifaces = [iface for iface in get_ifaces() if not is_wifi_iface(iface)]
+    # If we have more than one wired interface, try to find one with a carrier
+    # (i.e. a cable plugged in).
+    if len(ifaces) > 1:
+        with_carrier = []
+        isdown = [iface for iface in ifaces
+                  if 'DOWN' in run_or_die('ip link show %s' % iface)]
+        # Put this here, so we only print the following message once.
+        if isdown:
+            become_root()
+        print('Detecting carrier on wired interfaces')
+        for iface in isdown:
+            run_or_die('ip link set dev %s up' % iface)
+        if isdown:
+            # Wait a short while for carrier to be detected
+            time.sleep(0.2)
+        for iface in ifaces:
+            print(iface, end=' ')
+            carrier = open('/sys/class/net/%s/carrier' % iface).read()
+            if int(carrier):
+                with_carrier.append(iface)
+                print('Yes')
+            else:
+                print('No')
+        for iface in isdown:
+            run_or_die('ip link set dev %s down' % iface)
+        # If we found no interfaces with a carrier, just use the original list.
+        if with_carrier:
+            ifaces = with_carrier
     if ifaces:
         iface = ifaces[0]
         if len(ifaces) > 1:
-            print 'Using interface "%s"' % iface
+            print('Using interface "%s"' % iface)
         return iface
     die('Could not find any wired interfaces')
 
@@ -349,7 +419,7 @@ def get_routes():
         route = {'target': target,
                  'netmask': netmask,
         }
-        for i in xrange(0, len(attrs)-1, 2):
+        for i in range(0, len(attrs) - 1, 2):
             route[attrs[i]] = attrs[i + 1]
         routes.append(route)
     return routes
@@ -360,7 +430,7 @@ def get_default_route():
             return route
 
 def get_addrs4(iface, with_netmask=False):
-    output = run_or_die('ip addr show %s' % iface)
+    output = run('ip addr show %s 2>/dev/null' % iface) or ''
     addrs = re.findall(r'inet (\d+\.\d+\.\d+\.\d+)(?:/(\d+))?', output)
     if not with_netmask:
         addrs = [addr[0] for addr in addrs]
@@ -373,13 +443,13 @@ def get_addr4(iface, with_netmask=False):
 
 def get_vpns():
     read_config()
-    return VPN.keys()
+    return list(VPN.keys())
 
 def bash_complete(xs):
     # XXX: Make this robust
     def quote(s):
         return s.encode('utf8').replace(' ', r'\\ ')
-    print '\n'.join(map(quote, xs))
+    print('\n'.join(map(quote, xs)))
     sys.exit(0)
 
 def parse_args():
@@ -412,9 +482,14 @@ def parse_args():
     if '-h' in optional or '--help' in optional or (args and args[0] == 'help'):
         usage()
 
+    # This flag is set by `become_root` so we only see a warning about missing
+    # `yaml` once.
+    if not optional.pop('--internal-no-warn-no-yaml', False):
+        if yaml is None:
+            print('!! PyYaml is not installed, cannot read config file')
     read_config()
     if '--internal-list-all' in optional:
-        bash_complete(CONFIG.keys())
+        bash_complete(list(CONFIG.keys()))
     if '--internal-list-up' in optional:
         bash_complete(get_ifaces_up())
     if '--internal-list-vpn' in optional:
@@ -430,7 +505,7 @@ def parse_args():
     NOVPN   = optional.pop('--no-vpn', False)
 
     if optional:
-        die('Unknown argument: %s' % optional.keys()[0])
+        die('Unknown argument: %s' % list(optional.keys())[0])
 
     if len(args) == 0:
         return 'list', []
@@ -492,9 +567,13 @@ def read_config(reraise = False):
     COMMON = {}
     if CONFIG_FILE is None:
         return
+    if yaml is None:
+        return
     try:
         with open(expand(CONFIG_FILE)) as fd:
-            raw_config = yaml.load(fd, Loader=yaml.SafeLoader)
+            raw_config = yaml.safe_load(fd)
+    except FileNotFoundError:
+        return
     except Exception as e:
         if reraise:
             raise
@@ -502,7 +581,7 @@ def read_config(reraise = False):
     if raw_config is None:
         if reraise:
             raise
-        die('Empty configuration')
+        die('Empty configuration; remove or populate it (see `config.example`)')
     for k, v in FALLBACK_CONFIG.items():
         raw_config.setdefault(k, v)
 
@@ -511,30 +590,48 @@ def read_config(reraise = False):
     IGNORED_SSIDS = set(re.compile(ign) for ign in IGN.get('ssids') or [])
     VPN = raw_config.pop('vpn', {})
 
+    aliases = {}
+
     for name, raw_conn in raw_config.items():
+        # An alias
+        if isinstance(raw_conn, str):
+            def repl(m):
+                cmd, = [_f for _f in m.groups() if _f]
+                return run_or_die(cmd).strip()
+            aliases[name] = re.sub(r'\$\((.*?)\)|`(.*?)`', repl, raw_conn)
+            continue
         conn = {}
         for key, val in (raw_conn or {}).items():
-            # Assume UTF-8 encoding
-            if isinstance(val, unicode):
-                val = val.encode('utf8')
+            # FIXME: the change from Python 2 to 3 may have introduced all sorts
+            # of encoding errors
+
+            # # Assume UTF-8 encoding
+            # if isinstance(val, str):
+            #     val = val.encode('utf8')
             if key == 'wpa':
                 val = parse_wpa_conf(val)
             if key not in KNOWN_KEYS:
                 die('Unknown key: %s' % key)
-            if isinstance(val, unicode):
-                # The yaml decoder will convert
-                # non-ascii strings into unicode
-                # This is not what we want. We want
-                # e.g. '\xc3' in the yaml file to become b'\xc3',
-                # not u'\xc3'.
-                # This is an ugly hack to fix it.
-                val = val.encode('iso-8859-1')
+            # if isinstance(val, str):
+            #     # The yaml decoder will convert
+            #     # non-ascii strings into unicode
+            #     # This is not what we want. We want
+            #     # e.g. '\xc3' in the yaml file to become b'\xc3',
+            #     # not u'\xc3'.
+            #     # This is an ugly hack to fix it.
+            #     val = val.encode('iso-8859-1')
             conn[key] = val
         if name == 'common':
             COMMON = conn
         else:
             CONFIG[name] = conn
-
+    # Resolve aliases
+    for alias, name in aliases.items():
+        if name not in CONFIG:
+            die('"%s" is an alias for "%s", but it is not defined' %
+                (alias, name))
+        CONFIG[alias] = CONFIG[name]
+        CONFIG[alias]['alias_for'] = name
     # Set common settings
     for name, conn in CONFIG.items():
         for key, val in COMMON.items():
@@ -552,26 +649,26 @@ def do_show(k = None):
 
 def do_list():
     read_config()
-    connections = CONFIG.keys()
+    connections = list(CONFIG.keys())
     c2if = get_connection_to_iface_map()
     width = max(len(c) for c in connections)
     for conn in sorted(connections):
         if conn in c2if:
             iface = c2if[conn]
-            print '%s (%s: %s)' % (conn.ljust(width), iface,
-                                   get_addr4(iface) or 'no address')
+            print('%s (%s: %s)' % (conn.ljust(width), iface,
+                                   get_addr4(iface) or 'no address'))
             del c2if[conn]
         else:
-            print conn
+            print(conn)
     if c2if:
-        print
+        print()
         for c, i in c2if.items():
-            print '%s: "%s", %s' % (i, c, get_addr4(i) or 'no address')
+            print('%s: "%s", %s' % (i, c, get_addr4(i) or 'no address'))
 
 def unescape_c_str(data):
     return re.sub(
         r'\\x([0-9a-f]{2})',
-        lambda x: x.group(1).decode('hex'),
+        lambda x: bytes.fromhex(x.group(1)).decode('latin1'),
         data
     )
 
@@ -588,7 +685,7 @@ def parse_iw_scan_tree(iface):
         if data:
             break
         else:
-            print "Scan failed, re-running"
+            print("Scan failed, re-running")
             time.sleep(0.5)
     parents = [(-1, {})]
     last = None
@@ -598,7 +695,7 @@ def parse_iw_scan_tree(iface):
         while parents and curindent <= parents[-1][0]:
             _, obj = parents.pop()
             for key, val in obj.items():
-                if isinstance(val, dict) and val.keys() == [None]:
+                if isinstance(val, dict) and list(val.keys()) == [None]:
                     obj[key] = val[None]
         return obj
 
@@ -620,9 +717,19 @@ def parse_iw_scan_tree(iface):
         parents.append((curindent, obj))
     return popold(-1)
 
-def do_scan():
+def do_scan(open_flag=None):
+    if open_flag:
+        if open_flag != 'open':
+            die('scan: bad argument')
+        only_open = True
+    else:
+        only_open = False
+
     become_root()
     iface = IFACE or get_wifi_iface_up() or get_default_wifi_iface()
+
+    if not iface:
+        die('No WiFi interface')
 
     # Make sure iface is up
     run_or_die('ip link set dev %s up' % iface)
@@ -644,13 +751,15 @@ def do_scan():
 
         ap['SSID'] = unescape_c_str(ap['SSID'])
         try:
-            ssid = ap['SSID'].decode('utf8')
+            ssid = ap['SSID']
         except UnicodeDecodeError:
             ssid = escape_c_str(ap['SSID'])
 
         quality = float(signal_re.match(ap['signal']).group(1))
         crypto = ap.get('RSN', ap.get('WPA', ''))
         if crypto:
+            if only_open:
+                continue
             crypto = crypto.get('Authentication suites', 'UNKNOWN')
 
         if ap['SSID'] == '':
@@ -662,32 +771,52 @@ def do_scan():
         else:
             aps[ssid] = [crypto, [quality], [addr]]
     if len(aps) == 0:
-        print 'Found no access points'
+        print('Found no access points')
         return
     with open('/tmp/.net-scan', 'w') as fd:
-        json.dump(aps.keys(), fd)
-    ssid_align = max(map(len, aps.keys()))
+        # Avoid null-bytes; they wreck bash completion
+        json.dump([k for k in aps.keys() if '\0' not in k], fd)
+    ssid_align = max(list(map(len, list(aps.keys()))))
     for ssid, (crypto, qualities, addrs) in \
-        sorted(aps.items(), key=lambda x: -max(x[1][1])):
+        sorted(list(aps.items()), key=lambda x: -max(x[1][1])):
         ssid = ssid.strip('\x00')
-        print '%s %d dBm %s' % ((ssid or '(hidden)').ljust(ssid_align),
+        print('%s %d dBm %s' % ((ssid or '(hidden)').ljust(ssid_align),
                                 max(qualities),
                                 crypto
-                                )
+                                ))
         if len(addrs) > 1 or ssid == '':
             for addr, quality in zip(addrs, qualities):
-                print '  - %s %d dBm' % (addr, quality)
+                print('  - %s %d dBm' % (addr, quality))
 
-def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None):
-    cmd = 'udhcpc -R -i %s' % iface
+# If `udhcpc` is not instailled on the sytem we call it through `busybox`
+# instead.  However, this probably means that the `udhcpc` default script is not
+# installed either.  We warn about that in `start_dhcp_cmd` below.
+def udhcpc():
+    return 'udhcpc' if which('udhcpc') else 'busybox udhcpc'
+
+def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None, warn_no_config = True):
+    cmd = udhcpc() + ' -R -i %s' % iface
     if hostname:
-        cmd += ' -x hostname:%s' % hostname
+        if hostname == 'system':
+            hostname = run('hostname') or hostname
+        cmd += ' -F %s' % hostname
     if udhcpc_config:
         cmd += ' -s %s' % udhcpc_config
+    elif not os.path.isfile('/etc/udhcpc/default.script') and warn_no_config:
+        print('!! No `udhcpc` configuration given and ' \
+              '/etc/udhcpc/default.script does not exist')
+        print('!! Acquired information will not be set')
+        print('')
+        print('Set IP and default gateway manually:')
+        print('$ ip a add 192.168.0.99/24 dev <iface>')
+        print('$ ip r add default via 192.168.0.1 dev <iface>')
+        print('')
+        print('Tip: See the used interface and acquired address by running ' \
+              'with --verbose.')
     return cmd
 
 def stop_dhcp_cmd(iface):
-    pattern = start_dhcp_cmd(iface)
+    pattern = start_dhcp_cmd(iface, warn_no_config = False)
     return 'pkill -f "^%s"' % pattern
 
 def stop_dhcp(iface):
@@ -698,7 +827,8 @@ def renew_dhcp_cmd():
     # We only call this function in `do_dns', and this function is not aware of
     # which interface we are talking about. So: We renew them all and accept the
     # race condition.
-    return 'pkill -SIGUSR1 udhcpc'
+    pattern = udhcpc()
+    return 'pkill -SIGUSR1 "^%s' % pattern
 
 def renew_dhcp():
     run(renew_dhcp_cmd())
@@ -747,13 +877,20 @@ def set_wg_dgw(name):
     run_or_die('ip route add %s/32 via %s' % (endpoint, dgwaddress))
 
 def start_vpn(name):
-    print 'Starting VPN (%s)' % name
+    print('Starting VPN (%s)' % name)
 
     try:
         type = VPN[name]['type']
         conf = VPN[name]['config']
     except (KeyError, TypeError):
-        die('%s is misconfigured - check .net.conf.example' % name)
+        die('%s is misconfigured - check config.example' % name)
+
+    here = os.path.dirname(expand(CONFIG_FILE))
+    mbpath = os.path.join(here, conf)
+    if os.path.isfile(mbpath):
+        with open(mbpath, 'r') as f:
+            conf = f.read()
+        print(f'Read OpenVPN configuration from {mbpath}')
 
     if type == 'openvpn':
         path_conf = '/tmp/%s.ovpn' % name
@@ -776,6 +913,7 @@ def start_vpn(name):
         # Wait for the connection to be established
         line = ''
         marker = 'Initialization Sequence Completed'
+        dns = []
         while True:
             s = fd.readline()
             line += s
@@ -783,11 +921,37 @@ def start_vpn(name):
                 time.sleep(0.05)
                 continue
             line = line.rstrip()
+            # Catch DNS options
+            if 'PUSH_REPLY,' in line:
+                for opt in re.findall(r"'PUSH_REPLY,([^']*)'", line)[0].split(','):
+                    key, *args = opt.split()
+                    if key == 'dhcp-option':
+                        if args[0] == 'DNS':
+                            dns += [f'nameserver {args[1]}']
+                        elif args[0] == 'DOMAIN':
+                            dns += [f'search {args[1]}']
             if VERBOSE:
-                print line
+                print(line)
             if marker in line:
                 break
             line = ''
+
+        if dns:
+            dns = '\n'.join(dns)
+            print('Updating resolv.conf:')
+            print(dns)
+            become_root()
+            run('chattr -i /etc/resolv.conf')
+            run('cp /etc/resolv.conf /tmp/resolv.conf.novpn')
+            with open('/etc/resolv.conf', 'w') as fd:
+                fd.write(dns)
+                fd.write('\n')
+            run('chattr +i /etc/resolv.conf')
+        else:
+            try:
+                os.unlink('/tmp/resolv.conf.novpn')
+            except FileNotFoundError:
+                pass
 
     elif type == 'wireguard':
         internaddr = ''
@@ -826,16 +990,22 @@ def start_vpn(name):
 \nSupported VPN types: openvpn, wireguard' % name)
 
 def stop_vpn(name):
-    print 'Stopping VPN (%s)' % name
+    print('Stopping VPN (%s)' % name)
 
     try:
         type = VPN[name]['type']
     except (KeyError, TypeError):
-        die('%s is misconfigured - check .net.conf.example' % name)
+        die('%s is misconfigured - check config.example' % name)
 
     if type == 'openvpn':
         pattern = start_openvpn_cmd(name)
         run('pkill -9 -f "^%s"' % pattern)
+        if os.path.exists('/tmp/resolv.conf.novpn'):
+            print('Restoring resolv.conf')
+            become_root()
+            run('chattr -i /etc/resolv.conf')
+            run('mv /tmp/resolv.conf.novpn /etc/resolv.conf')
+            run('chattr +i /etc/resolv.conf')
 
     elif type == 'wireguard':
         try:
@@ -849,7 +1019,7 @@ def stop_vpn(name):
 \nSupported VPN types: openvpn, wireguard' % name)
 
 def tmp_stop_vpn(name, delay):
-    print 'Temporarily:',
+    print('Temporarily:', end=' ')
     stop_vpn(name)
     # Daemonize
     if os.fork():
@@ -1016,7 +1186,7 @@ def set_dns(dns, append=False):
     become_root()
     run('chattr -i /etc/resolv.conf')
     if dns:
-        if isinstance(dns, (str, unicode)):
+        if isinstance(dns, str):
             dns = [dns]
         with open('/etc/resolv.conf', 'a' if append else 'w') as fd:
             fd.write('\n') # Just to be sure, if appending
@@ -1088,9 +1258,12 @@ def do_connect(conn, psk=None):
         def get(key, default = None):
             return COMMON.get(key, default)
     else:
-        ssid = CONFIG[conn].get('ssid')
         def get(key, default = None):
             return CONFIG[conn].get(key, default)
+        ssid = get('ssid')
+        other_name = get('alias_for')
+        if other_name:
+            print('Using %s' % other_name)
 
     psk           = get('psk', psk)
     ap_addr       = get('ap-addr', ap_addr)
@@ -1122,7 +1295,7 @@ def do_connect(conn, psk=None):
                 if yesno('Stop connection on %s?' % i, True):
                     stop(i)
         elif a == 'all':
-            map(stop, up)
+            list(map(stop, up))
 
     # Evaluate configuration
     if psk and wpa:
@@ -1157,13 +1330,28 @@ def do_connect(conn, psk=None):
             else:
                 ssid = conn
 
-        wpa['network']['ssid'] = ssid.encode('hex')
+        wpa['network']['ssid'] = ssid.encode('latin-1').hex()
         wpa['network'].setdefault('scan_ssid', '0')
         wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
         wpa['ctrl_interface_group'] = '0'
         wpa_conf = '/tmp/wpa_supplicant.%s.conf' % iface
         wpa_log = '/tmp/wpa_supplicant.%s.log' % iface
         write_root_file(wpa_conf, 0o600, write_wpa_conf(wpa))
+
+    # Flush default route?  New default route set either below or via DHCP.
+    default_route = get_default_route()
+    add_default = True
+    if default_route:
+        if 'default' in routes or \
+           yesno('Replace default route via %s dev %s?' % \
+                 (default_route['via'], default_route['dev']),
+                 False):
+            logv('Flusing default route via %s dev %s' % \
+                 (default_route['via'], default_route['dev']))
+            run_or_die('ip route flush default via %s' % \
+                       default_route['via'])
+        else:
+            add_default = False
 
     if addr:
         try:
@@ -1178,26 +1366,11 @@ def do_connect(conn, psk=None):
             logv('(Guessed netmask: 255.255.255.0)')
             netmask = '/24'
 
+        network = ['ip addr add %s%s dev %s' % (ip, netmask, iface)]
+
         if not gateway:
             gateway = guess_gateway_ipv4(ip, netmask[1:])
             logv('(Guessed gateway: %s)' % gateway)
-
-        network = ['ip addr add %s%s dev %s' % (ip, netmask, iface)]
-
-        default_route = get_default_route()
-        # Add default route if none exists
-        add_default = True
-        if default_route:
-            if 'default' in routes or \
-               yesno('Override default route via %s dev %s?' % \
-                     (default_route['via'], default_route['dev']),
-                     False):
-                logv('Flusing default route via %s dev %s' % \
-                     (default_route['via'], default_route['dev']))
-                run_or_die('ip route flush default via %s' % \
-                           default_route['via'])
-            else:
-                add_default = False
 
         if gateway != 'none' and add_default and 'default' not in routes:
             network.append('ip route add default via %s dev %s' % \
@@ -1223,7 +1396,7 @@ def do_connect(conn, psk=None):
         if is_wifi:
             die('WiFi options set on wired interface!')
         if not addr:
-            print 'Sending DHCP request'
+            print('Sending DHCP request')
         for cmd in network:
             run_or_die(cmd)
     # Else WiFi
@@ -1231,7 +1404,7 @@ def do_connect(conn, psk=None):
         # If Open WiFi with fallthrough--always use wpa_supplicant
         if not wpa:
             wpa = {'network': {'key_mgmt': 'NONE'}}
-            wpa['network']['ssid'] = ssid.encode('hex')
+            wpa['network']['ssid'] = ssid.encode('latin1').hex()
             wpa['network'].setdefault('scan_ssid', '0')
             wpa['ctrl_interface'] = '/var/run/wpa_supplicant'
             wpa['ctrl_interface_group'] = '0'
@@ -1270,7 +1443,7 @@ echo %s
                 '\n'.join(network),
                 end_marker))
 
-        print 'Connecting to %s' % ssid
+        print('Connecting to %s' % ssid)
         cmd = 'wpa_supplicant -B -i %s -c %s -f %s' % (iface, wpa_conf, wpa_log)
         if VERBOSE:
             cmd += ' -d'
@@ -1295,19 +1468,19 @@ echo %s
                 continue
             line = line.rstrip()
             if line == beg_marker:
-                print 'Sending DHCP request'
+                print('Sending DHCP request')
                 if VERBOSE:
-                    print '\n'.join('+ %s' % cmd for cmd in network)
+                    print('\n'.join('+ %s' % cmd for cmd in network))
             elif line == end_marker:
                 break
             elif VERBOSE:
-                print line
+                print(line)
             line = ''
 
-    print 'Address acquired: %s' % get_addr4(iface)
+    print('Address acquired: %s' % get_addr4(iface))
 
     if vpn and not NOVPN:
-        print 'Just to be safe:',
+        print('Just to be safe:', end=' ')
         stop_vpn(vpn)
         start_vpn(vpn)
 
@@ -1327,20 +1500,40 @@ def parse_mac(mac_arg):
     m = re.match(mac_re, mac)
     if m:
         return fmt(g.zfill(2) for g in m.groups())
-    die('Invalid MAC address: %s' % mac_arg)
 
 def finalize_mac(iface, mac):
     if mac == 'native':
-       mac = run_or_die("ethtool -P " + iface).split()[2]
+        return run_or_die("ethtool -P " + iface).split()[2]
 
-    if mac and mac != 'random':
-        mac = parse_mac(mac)
+    if not mac:
+        # Default: Inside one of the Macbook Pro wifi ranges
+        mask = '80:e6:50:??:??:??'
     else:
-        # Inside one of the Macbook Pro wifi ranges
-        mac = '80:e6:50:??:??:??'
-    while '?' in mac:
-        mac = mac.replace('?', random.choice('0123456789abcdef'), 1)
-    return mac
+        mask = parse_mac(mac)
+
+    if not mask:
+        # MAC is given but not a valid mask, search vendor prefixes
+        vendor = mac
+        mac_path = expand(MAC_PREFIXES_PICKLE)
+        if not os.path.exists(mac_path):
+            die('Invalid MAC address and MAC.pkl does not exist, please run ' \
+                'genMAC.py')
+
+        try:
+            vendors = dict(pickle.load(open(mac_path, 'rb')))
+        except:
+            die('Could not load MAC.pkl, please run genMAC.py -f')
+
+        try:
+            masks = vendors[vendor]
+        except KeyError:
+            die('Invalid MAC address/vendor: %s' % vendor)
+
+        mask = random.choice(masks)
+
+    while '?' in mask:
+        mask = mask.replace('?', random.choice('0123456789abcdef'), 1)
+    return mask
 
 def set_mac(iface, mac):
     mac = finalize_mac(iface, mac)
@@ -1427,7 +1620,7 @@ def do_vpn(vpn, cmd='start', delay=VPN_TMPSTOP_DELAY):
             delay = int(delay)
         except:
             die('Delay must be a number')
-        print 'Temporarily (%ds) stopping VPN (%s)' % (delay, vpn)
+        print('Temporarily (%ds) stopping VPN (%s)' % (delay, vpn))
         tmp_stop_vpn(vpn, delay)
     else:
         die('Unknown VPN command: %s' % cmd)
@@ -1435,19 +1628,24 @@ def do_vpn(vpn, cmd='start', delay=VPN_TMPSTOP_DELAY):
 def do_genkey():
     pk = run('wg genkey').strip()
     pubkey = run_or_die('echo %s | wg pubkey' % pk).strip()
-    print '======================WireGuard keys======================'
-    print 'Private key:  ' + pk + '\n Public key:  ' + pubkey
+    print('======================WireGuard keys======================')
+    print('Private key:  ' + pk + '\n Public key:  ' + pubkey)
 
 def main():
+    # Make sure config dir exists
+    config_dir = expand(DEFAULT_CONFIG_DIR)
+    if not os.path.isdir(config_dir):
+        os.mkdir(config_dir)
+
     cmd, args = parse_args()
     if   cmd == 'list':
         if len(args) > 0:
             die('Command "list" takes no arguments')
         do_list()
     elif cmd == 'scan':
-        if len(args) > 0:
-            die('Command "scan" takes no arguments')
-        do_scan()
+        if len(args) > 1:
+            die('Command "scan" takes one or no arguments')
+        do_scan(*args)
     elif cmd == 'connect':
         if len(args) not in (1, 2):
             die('Command "connect" takes one or two arguments')
@@ -1462,8 +1660,10 @@ def main():
         do_stop(*args)
     elif cmd == 'vpn':
         if not args:
-            die('Command "vpn" needs a VPN name')
-        do_vpn(*args)
+            for vpn in get_vpns():
+                print(vpn)
+        else:
+            do_vpn(*args)
     elif cmd == 'show':
         if len(args) > 1:
             die('Command "show" takes one or no arguments')
