@@ -20,6 +20,7 @@ IFACE       = None
 VERBOSE     = False
 IGNORED_IFACES = set()
 IGNORED_SSIDS  = set()
+IGNORE_MISSING_UDHCPC_CONFIG = False
 VPN_TMPSTOP_DELAY = 60*5
 
 # Valid config file keys:
@@ -453,7 +454,7 @@ def bash_complete(xs):
     sys.exit(0)
 
 def parse_args():
-    global CONFIG_FILE, IFACE, VERBOSE, NOVPN
+    global CONFIG_FILE, IFACE, VERBOSE, NOVPN, IGNORE_MISSING_UDHCPC_CONFIG
 
     optional = {}
     args = sys.argv[1:][::]
@@ -494,6 +495,8 @@ def parse_args():
         bash_complete(get_ifaces_up())
     if '--internal-list-vpn' in optional:
         bash_complete(get_vpns())
+    if '--internal-ignore-missing-udhcpc-config':
+        IGNORE_MISSING_UDHCPC_CONFIG = True
     if '--internal-scan-cache' in optional:
         try:
             bash_complete(json.load(open('/tmp/.net-scan')))
@@ -802,7 +805,7 @@ def start_dhcp_cmd(iface, hostname = None, udhcpc_config = None, warn_no_config 
         cmd += ' -F %s' % hostname
     if udhcpc_config:
         cmd += ' -s %s' % udhcpc_config
-    elif not os.path.isfile('/etc/udhcpc/default.script') and warn_no_config:
+    elif not os.path.isfile('/etc/udhcpc/default.script') and warn_no_config and not IGNORE_MISSING_UDHCPC_CONFIG:
         print('!! No `udhcpc` configuration given and ' \
               '/etc/udhcpc/default.script does not exist')
         print('!! Acquired information will not be set')

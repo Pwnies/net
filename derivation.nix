@@ -17,4 +17,5 @@ in runCommand "net" {
   # Fix the path now to make patchShebangs do the right thing
   PATH=$PATH:${path} patchShebangs $out/bin/net
   sed -i "1 a import os; os.environ['PATH'] = '${path}:' + os.environ['PATH']" $out/bin/net
+  sed -i "s/IGNORE_MISSING_UDHCPC_CONFIG = False/IGNORE_MISSING_UDHCPC_CONFIG = True/" $out/bin/net
 ''
