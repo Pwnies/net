@@ -1452,7 +1452,8 @@ echo %s
             cmd += ' -d'
         rm(wpa_log)
         run_or_die(cmd)
-        run_or_die('wpa_cli -B -i %s -a %s' % (iface, wpa_cli_sh))
+        run_or_die('wpa_cli -B -i %s -a %s -p %s -s /tmp' %
+                   (iface, wpa_cli_sh, wpa['ctrl_interface']))
 
         # Wait for wpa_cli
         while True:
