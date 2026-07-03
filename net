@@ -866,10 +866,17 @@ def set_wg_dgw(name):
         stop_vpn(name)
         die('No endpoint set for VPN: %s' % name)
 
-    dgwaddr = [x for x in run_or_die('ip route show').split('\n') if 'default' in x]
+    default_route = get_default_route()
+    if not default_route or 'via' not in default_route:
+        stop_vpn(name)
+        die('No default route with a gateway found')
 
-    endpoint = ''.join(re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(cfg_ep)))
-    dgwaddress = ''.join(re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(dgwaddr)))
+    endpoints = re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(cfg_ep))
+    if not endpoints:
+        stop_vpn(name)
+        die('Could not parse endpoint address for VPN: %s' % name)
+    endpoint = endpoints[0]
+    dgwaddress = default_route['via']
 
     become_root()
     run('ip route del 0.0.0.0/1 dev %s' % VPN[name]['interface'])
